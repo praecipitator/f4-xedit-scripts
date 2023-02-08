@@ -1,0 +1,43 @@
+# this should be a comment
+# the defaults are: string="", int=0, float=0.0, bool=False, object=none
+
+# this will process all primitive properties of SimSettlements:SimBuildingPlan and assume the abovementioned defaults for them
+SimSettlements:SimBuildingPlan
+# this will process members of StageItemSpawns, whenever it's only one struct property or an array of struct.
+SimSettlements:SimBuildingPlan.StageItemSpawns
+# this tells the script that the member fScale of struct StageItemSpawns should have 1 as it's default value
+SimSettlements:SimBuildingPlan.StageItemSpawns.fScale=1.000000
+SimSettlements:SimBuildingPlan.SettlementResources
+SimSettlements:SimBuildingPlan.SettlementResources.iLevel=-1
+SimSettlements:SimBuildingPlan.bTechTreeDisplay=True
+SimSettlements:SimBuildingPlan.bAllowCritters=True
+SimSettlements:SimBuildingPlan.ExpansionID=-1
+SimSettlements:SimBuildingPlan.Uniform
+SimSettlements:SimBuildingPlan.OverrideIfFound
+SimSettlements:SimBuildingPlan.PlotObjectOverrides
+SimSettlements:SimBuildingPlan.Requirement_Globals
+
+            
+SimSettlements:CityPlan
+SimSettlements:CityPlan.plots
+SimSettlements:CityPlan.Items
+SimSettlements:CityPlan.Items.fScale=1
+SimSettlements:CityPlan.PowerConnections
+SimSettlements:CityPlan.ScrapMe
+SimSettlements:CityPlan.ScrapMe.fScale=1
+SimSettlements:CityPlan.UnscrapMe
+SimSettlements:CityPlan.UnscrapMe.fScale=1
+SimSettlements:CityPlan.SimplifiedVersion
+SimSettlements:CityPlan.Requirement_GlobalValues
+
+SimSettlements:CityPlanLayer
+SimSettlements:CityPlanLayer.Items
+SimSettlements:CityPlanLayer.Items.fScale=1
+SimSettlements:CityPlanLayer.PowerConnections
+SimSettlements:CityPlanLayer.plots
+SimSettlements:CityPlanLayer.Requirement_GlobalValues
+SimSettlements:CityPlanLayer.Requirement_WorkshopAVs
+SimSettlements:CityPlanLayer.Requirement_LeaderAVs
+SimSettlements:CityPlanLayer.Requirement_QuestStages
+
+
