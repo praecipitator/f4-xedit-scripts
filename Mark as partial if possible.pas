@@ -1,9 +1,9 @@
 {
-    Attempts to figure out if overrides of Worldspaces or Cells are safe to mark as partial, 
+    Attempts to figure out if overrides of Worldspaces or Cells are safe to mark as partial,
     and, if yes, marks them as partial and deletes some data.
 
     Loosely based on a script by E (01000101)
-    
+
     The rules are:
         - Worldspaces:
             - must be an ITM
@@ -14,11 +14,7 @@
                 - Must contain the "Persistent" subgroup with at least 1 child
                 - Must not contain precombine-breaking overrides
             - Exteriors:
-                - Must be an ITM
-                - Must not contain navmeshes
-                - Must not contain terrain edits
-                - The parent worldspace's persistent cell must exist
-                - Must not contain precombine-breaking overrides
+                - Never
             - Worldspace partial cells:
                 - Always
     (Terms like "exists" and "contains" refer to the target plugin only)
@@ -129,7 +125,7 @@ unit MakePartialForm;
     begin
          Result := (GetElementNativeValues( e, 'Record Header\Record Flags' ) and $4000) <> 0;
     end;
-    
+
     procedure addPartialFlag(e: IInterface);
     begin
         SetElementNativeValues( e, 'Record Header\Record Flags', GetElementNativeValues( e, 'Record Header\Record Flags' ) or $4000 );
@@ -138,11 +134,16 @@ unit MakePartialForm;
     function getPrevOverride(e: IInterface): IInterface;
     var
         i, numOverrides: integer;
-        prevOverride, elemMaster, curOverride: IInterface;
-
+        prevOverride, elemMaster, curOverride, elemFile: IInterface;
     begin
         elemMaster := Master(e);
-        numOverrides:=OverrideCount(elemMaster);
+        numOverrides := OverrideCount(elemMaster);
+        // only check overrides from masters of current file
+        elemFile := GetFile(e);
+        Result := nil;
+        if(HasMaster(elemFile, GetFileName(GetFile(elemMaster)))) then begin
+            Result := elemMaster;
+        end;
 
         Result := elemMaster;
         if(numOverrides <= 1) then begin
@@ -150,14 +151,12 @@ unit MakePartialForm;
             exit;
         end;
 
-        prevOverride := elemMaster;
+        // prevOverride := elemMaster;
 
         for i:=0 to numOverrides-1 do begin
             curOverride := OverrideByIndex(elemMaster, i);
             if(hasPartialFlag(curOverride)) then continue;
-            // AddMessage('Checking '+getFileName(getFile(curOverride)));
-
-
+            if(not HasMaster(elemFile, GetFileName(GetFile(curOverride)))) then continue; // skip non-master override
 
             if(Equals(curOverride, e)) then begin
                 // AddMessage('found '+GetFileName(GetFile(prevOverride)));
@@ -328,6 +327,7 @@ unit MakePartialForm;
         prevCellOverride, parentWs, wsPersistentCell, wspcGroup: IInterface;
     begin
         Result := false;
+
         // if this is the persistent cell: true
         flags := GetElementNativeValues(cell, 'Record Header\Record Flags');
         // persistent = 1024
@@ -337,6 +337,10 @@ unit MakePartialForm;
         end;
 
         // if this is NOT the persistent cell:
+        // I don't know under which circumstances this is actually safe.
+        // So far it seems the answer is "never".
+        exit;
+
         prevCellOverride := getPrevOverride(cell);
 
         // - parent worldspace's persistent cell must be in current file
