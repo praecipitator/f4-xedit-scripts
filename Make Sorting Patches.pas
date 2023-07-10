@@ -21,6 +21,7 @@ unit MakeSortingPatches;
         taggingConfigData: TJsonObject;
         fileMap, typeConfigKeys, typeConfigValues: TStringList;
         patcherConfig: TJsonObject;
+        keepTheseTags: TStringList;
 
     procedure loadConfig();
     begin
@@ -233,6 +234,9 @@ unit MakeSortingPatches;
 
         prepareFiles(patcherConfig.S['baseName']);
         Result := 0;
+        
+        keepTheseTags := TStringList.create;
+        keepTheseTags.add('[PRA]');
     end;
 
     function getArmoType(e: IInterface): string;
@@ -627,6 +631,50 @@ unit MakeSortingPatches;
 
         Result := (jsonArrayContains(tagBare, extraValidTags));
     end;
+    
+    function stripTagExtra(text: String): string;
+    var
+        c, tag, tagBare, tagNoBrackets: string;
+        i, len: integer;
+    begin
+        // AddMessage('checkItemTagForCfg for '+text);
+        Result := text;
+        len := length(text);
+        if(len = 0) then begin
+            exit;
+        end;
+        // regex := '^([\[\]\(\)\{\}|][^\[\]\(\)\{\}|]+[\[\]\(\)\{\}|]).+';
+        tag := regexExtract(text, tagExtractionRegex, 1);
+        // AddMessage('tag='+tag);
+        if(tag = '') then begin
+            exit;
+        end;
+        if(keepTheseTags.indexOf(tag) >= 0) then begin
+            exit;
+        end;
+
+        // for where the entire name is in brackets
+        if(tag = text) then begin
+            exit;
+        end;
+
+        //tagBare := extractBareTag(text);
+        //AddMessage('tagBare='+tagBare);
+
+        //if (not jsonArrayContains(tagBare, extraValidTags)) then begin
+            // yes strip
+            Result := stripTag(text);
+        //end;
+        // Result := (jsonArrayContains(tagBare, extraValidTags));
+    end;
+    
+    function stripTag(inName: string): string;
+    begin
+        Result := trim(regexExtract(inName, tagStripRegex, 1));
+        if(Result = '') then begin
+            Result := inName;
+        end;
+    end;
 
     procedure processForTaggingCfg(e: IInterface; targetFile: IInterface; typeStr, confName: string);
     var
@@ -665,13 +713,8 @@ unit MakeSortingPatches;
                 exit;
             end;
         end;// else begin
-            newName := trim(regexExtract(curName, tagStripRegex, 1));
-            if(newName = '') then begin
-                newName := curName;
-            end;
-        //end;
 
-
+        newName := stripTagExtra(curName);
 
         if(not assigned(newOverride)) then begin
             if(not dryRunMode) then begin
@@ -857,6 +900,7 @@ unit MakeSortingPatches;
         typeConfigKeys.free();
         typeConfigValues.free();
         patcherConfig.free();
+        keepTheseTags.free();
     end;
 
 end.

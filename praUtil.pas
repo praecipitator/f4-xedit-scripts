@@ -32,6 +32,61 @@ unit PraUtil;
     begin
         Result := FilesEqual(file1, file2);
     end;
+    
+    {
+        Returns if e is either deleted, or flagged as initially disabled and opposite to player
+    }
+    function isConsideredDeleted(e: IInterface): boolean;
+    var
+        xesp: IInterface;
+        flags: integer;
+    begin
+        Result := true;
+        if(GetIsDeleted(e)) then exit;
+
+        if(GetIsInitiallyDisabled(e)) then begin
+            xesp := pathLinksTo(e, 'XESP\Reference');
+            if(FormID(xesp) = 20) then begin
+                flags := GetElementNativeValues(e, 'XESP\Flags');
+                // yes player
+                if((flags or 1) <> 0) then begin
+                    //AddMessage('the flags are '+IntToStr(flags));
+                    exit;
+                end;
+            end;
+
+        end;
+        Result := false;
+    end;
+    
+    {
+        Returns if e is scrappable, either directly or via a scrap FLST, recursively
+    }
+    function isBaseObjectScrappable(e: IInterface): boolean;
+    var
+        i: integer;
+        curRef, product: IInterface;
+    begin
+        Result := false;
+        for i:=0 to ReferencedByCount(e)-1 do begin
+            curRef := ReferencedByIndex(e, i);
+
+            if(Signature(curRef) = 'COBJ') then begin
+                product := LinksTo(ebp(curRef, 'CNAM'));
+
+                if(isSameForm(product, e)) then begin
+                    Result := true;
+                    exit;
+                end;
+            end else if(Signature(curRef) = 'FLST') then begin
+                if(isBaseObjectScrappable(curRef)) then begin
+                    Result := true;
+                    exit;
+                end;
+            end;
+        end;
+
+    end;
 
     {
         Check if two IInterfaces are equivalent, by recursively comparing the edit values of their contents
@@ -1107,7 +1162,7 @@ unit PraUtil;
 		theFormId: cardinal;
 		theFilename: string;
 	begin
-		theFile := GetFile(form);
+		theFile := GetFile(MasterOrSelf(form));
 		theFilename := GetFileName(theFile);
 		theFormId := getLocalFormId(theFile, FormID(form));
 
@@ -2669,9 +2724,7 @@ unit PraUtil;
         // ugh this is a horrible mess
         // it seems like my FileBy* functions are also slow AF
 
-
-        // sourceFile := GetFile(elem);
-        curFormID := FormID(elem);
+        curFormID := GetLoadOrderFormID(elem);// FormID(elem) so this returns the FormID from the parent file's PoV, it seems
         mainLoadOrder := (curFormID and $FF000000) shr 24;
         if(mainLoadOrder = $FE) then begin
             // an ESL is targeted
@@ -2763,11 +2816,11 @@ unit PraUtil;
     var
         masterElem, curOverride, prevOverride: IINterface;
         numOverrides, i: integer;
-        targetFileName: string;
+        
     begin
 
         masterElem := MasterOrSelf(sourceElem);
-        targetFileName := GetFileName(targetFile);
+        
         Result := masterElem;
 
         if(FilesEqual(notInThisFile,  GetFile(masterElem))) then begin

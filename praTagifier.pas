@@ -23,6 +23,7 @@ unit praTagifier;
 
         // TAGS
         tagShipment: String; // Shipments
+        tagShipmentValuable: String; // Shipments, but fallback to valuable or collectible or such
         tagScrap: String; // Scrap, MISCs which contain components
         tagResource: String; // Resources, MISCs which a meant to represent one type of component
         tagLooseMod: String; // Loose modifications
@@ -111,6 +112,7 @@ unit praTagifier;
         extraValidTagsList.Sorted := True;
         extraValidTagsList.Duplicates := dupIgnore;
 
+        extraValidTagsList.add(getTagContent(tagShipmentValuable));
         extraValidTagsList.add(getTagContent(tagShipment));
         extraValidTagsList.add(getTagContent(tagScrap));
         extraValidTagsList.add(getTagContent(tagResource));

@@ -5,6 +5,7 @@
         },
         "tags":{
             "Shipment": "{Shipment}",
+            "ShipmentValuable": "{Shipment}",
             "Scrap": "{Scrap}",
             "Resource": "{Resource}",
             "LooseMod": "{Mod}",
@@ -45,6 +46,7 @@
         },
         "tags": {
             "Shipment": "{Scrap}",
+            "ShipmentValuable": "(Valuable)",
             "Scrap": "{Scrap}",
             "Resource": "{Resource}",
             "LooseMod": "{Mod}",
@@ -86,6 +88,7 @@
         "tags": {
 
             "Shipment": "(Resource)",
+            "ShipmentValuable": "(Valuable)",
             "Scrap": "{Scrap}",
             "Resource": "(Resource)",
             "LooseMod": "{Mod}",
@@ -127,6 +130,7 @@
         },
         "tags": {
             "Shipment": "[Scrap]",
+            "ShipmentValuable": "[Valuable]",
             "Scrap": "[Scrap]",
             "Resource": "[Resource]",
             "LooseMod": "[Mod]",
@@ -167,6 +171,7 @@
         },
         "tags": {
             "Shipment": "[  ]",
+            "ShipmentValuable": "[  ]",
             "Scrap": "[Junk]",
             "Resource": "(_)",
             "LooseMod": "[Mod]",

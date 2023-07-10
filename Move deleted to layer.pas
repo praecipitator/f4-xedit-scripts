@@ -5,7 +5,7 @@
 unit userscript;
     uses praUtil;
     const 
-        layerName = 'praLibraryDeleted';
+        layerName = 'deleted';
         
     var
         layerForm: IInterface;
@@ -30,6 +30,8 @@ unit userscript;
 
     // called for every record selected in xEdit
     function Process(e: IInterface): integer;
+    var
+        curLayer: IInterface;
     begin
         Result := 0;
 
@@ -37,9 +39,13 @@ unit userscript;
             exit;
         end;
         // comment this out if you don't want those messages
-        AddMessage('Processing: ' + FullPath(e));
-        if(isSomehowDeleted(e)) then begin
-            setPathLinksTo(e, 'XLYR', layerForm);
+        if (isSomehowDeleted(e)) then begin
+
+            curLayer := pathLinksTo(e, 'XLYR');
+            if(not assigned(curLayer)) then begin
+                AddMessage('Processing: ' + FullPath(e));
+                setPathLinksTo(e, 'XLYR', layerForm);
+            end;
         end;
 
         // processing code goes here
