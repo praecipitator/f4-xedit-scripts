@@ -69,6 +69,7 @@ textures\dlc03\actors\robobrain\dlc03_robobrainhead_s.dds
 scripts\source\user\settlementmenumanager\menuinstaller.psc
 Scripts\source\user\SimSettlementsV2
 Scripts\source\user\WorkshopFramework
+Scripts\source\user\workshopscript.psc
 Scripts\source\user\workshopnpcscript.psc
 Scripts\source\user\workshopobjectscript.psc
 Scripts\SettlementMenuManager

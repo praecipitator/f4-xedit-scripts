@@ -1,8 +1,10 @@
 {
-    Some useful functions
+    Some useful functions.
+
+    Version 2023-07-11
 }
 unit PraUtil;
-    uses mteFunctions;
+    uses mteFunctions;// deprecated, to be eventually removed
 
     const STRING_LINE_BREAK = #13#10;
 
@@ -32,7 +34,7 @@ unit PraUtil;
     begin
         Result := FilesEqual(file1, file2);
     end;
-    
+
     {
         Returns if e is either deleted, or flagged as initially disabled and opposite to player
     }
@@ -58,7 +60,7 @@ unit PraUtil;
         end;
         Result := false;
     end;
-    
+
     {
         Returns if e is scrappable, either directly or via a scrap FLST, recursively
     }
@@ -2735,6 +2737,57 @@ unit PraUtil;
         end;
     end;
 
+    procedure ReportRequiredMastersFull_Recursive(e: IInterface; list, loopPreventer: TStringList);
+    var
+        masters: TStringList;
+        i: integer;
+        child, maybeLinksTo: IInterface;
+        curKey: string;
+    begin
+        curKey := FormToStr(e);
+        if (loopPreventer.indexOf(curKey) > -1) then exit;
+        loopPreventer.add(curKey);
+
+        // first, do the vanilla thing
+        ReportRequiredMasters(e, list, true, true);
+
+        // now, do it recursively
+        for i := 0 to ElementCount(e)-1 do begin
+            child := ElementByIndex(e, i);
+            maybeLinksTo := LinksTo(child);
+            if(assigned(maybeLinksTo)) then begin
+                ReportRequiredMastersFull_Recursive(maybeLinksTo, list, loopPreventer);
+            end;
+        end;
+
+    end;
+
+    {
+        Similar to ReportRequiredMasters, but should actually report every single master required, even for REFRs
+    }
+    function ReportRequiredMastersFull(e: IInterface): TStringList;
+    var
+        loopPreventer: TStringList;
+        i: integer;
+        child, maybeLinksTo: IInterface;
+
+    begin
+        Result := TStringList.create;
+        Result.Duplicates := dupIgnore;
+        Result.CaseSensitive := false;
+        Result.Sorted := true; // important, or dupIgnore won't work
+
+        // keep track of everything we recurse into, to prevent endless loops
+        // because there are indeed circular links
+        loopPreventer := TStringList.create;
+        loopPreventer.Duplicates := dupIgnore;
+        loopPreventer.CaseSensitive := false;
+        loopPreventer.Sorted := true;
+
+        ReportRequiredMastersFull_Recursive(e, Result, loopPreventer);
+
+        loopPreventer.free();
+    end;
 
     procedure addRequiredMastersSilent_Single(fromElement, toFile: IInterface);
     var
@@ -2743,8 +2796,6 @@ unit PraUtil;
         toFileName: string;
         fromElemFile: IInterface;
     begin
-        masters := TStringList.create;
-
         toFileName := GetFileName(toFile);
         fromElemFile := GetFile(fromElement);
 
@@ -2752,7 +2803,7 @@ unit PraUtil;
             AddMasterIfMissing(toFile, GetFileName(fromElemFile));
         end;
 
-        ReportRequiredMasters(fromElement, masters, true, true);
+        masters := ReportRequiredMastersFull(fromElement);
         for i:=0 to masters.count-1 do begin
             if(toFileName <> masters[i]) then begin
                 AddMasterIfMissing(toFile, masters[i]);
@@ -2769,7 +2820,6 @@ unit PraUtil;
     var
         curMaster, injectedMaster: IInterface;
     begin
-        // AddMessage('WTF addRequiredMastersSilent: '+EditorID(fromElement));
         if(not isMaster(fromElement)) then begin
             curMaster := Master(fromElement);
             addRequiredMastersSilent_Single(curMaster, toFile);
@@ -2816,11 +2866,11 @@ unit PraUtil;
     var
         masterElem, curOverride, prevOverride: IINterface;
         numOverrides, i: integer;
-        
+
     begin
 
         masterElem := MasterOrSelf(sourceElem);
-        
+
         Result := masterElem;
 
         if(FilesEqual(notInThisFile,  GetFile(masterElem))) then begin
