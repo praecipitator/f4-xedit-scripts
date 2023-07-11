@@ -7,7 +7,7 @@ unit OffsetCellRefs;
     var
         targetCell, targetFile: IInterface;
         offsetX, offsetY, offsetZ: float;
-        
+
         // stats
         numNavmeshes, numRefs: integer;
 
@@ -26,7 +26,7 @@ unit OffsetCellRefs;
         end;
 
         // addRequiredMastersSilent(e, targetFile);
-        Result := getOrCreateElementOverride(e, targetFile);
+        Result := createElementOverride(e, targetFile);
     end;
 
     procedure processNavm(navm: IInterface);
@@ -53,7 +53,7 @@ unit OffsetCellRefs;
             newX := GetElementNativeValues(curV, 'X')+offsetX;
             newY := GetElementNativeValues(curV, 'Y')+offsetY;
             newZ := GetElementNativeValues(curV, 'Z')+offsetZ;
-            
+
             if(isFirstRef) then begin
                 minX := newX;
                 minY := newY;
@@ -72,17 +72,34 @@ unit OffsetCellRefs;
                 if(newY > maxY) then maxY := newY;
                 if(newZ > maxZ) then maxZ := newZ;
             end;
-            
+
             SetElementNativeValues(curV, 'X', newX);
             SetElementNativeValues(curV, 'Y', newY);
             SetElementNativeValues(curV, 'Z', newZ);
         end;
     end;
 
+    procedure processLoadDoor(door: IInterface);
+    var
+        doorToEdit: IInterface;
+        newX, newY, newZ: float;
+    begin
+        doorToEdit := getElementToEdit(door);
+
+        newX := GetElementNativeValues(door, 'XTEL\Position/Rotation\Position\X')+offsetX;
+        newY := GetElementNativeValues(door, 'XTEL\Position/Rotation\Position\Y')+offsetY;
+        newZ := GetElementNativeValues(door, 'XTEL\Position/Rotation\Position\Z')+offsetZ;
+
+        SetElementNativeValues(doorToEdit, 'XTEL\Position/Rotation\Position\X', newX);
+        SetElementNativeValues(doorToEdit, 'XTEL\Position/Rotation\Position\Y', newY);
+        SetElementNativeValues(doorToEdit, 'XTEL\Position/Rotation\Position\Z', newZ);
+    end;
+
     procedure processRef(ref: IInterface);
     var
         refToEdit: IInterface;
         newX, newY, newZ: float;
+        otherDoor: IInterface;
     begin
         numRefs := numRefs + 1;
         // easy
@@ -114,6 +131,12 @@ unit OffsetCellRefs;
         SetElementNativeValues(refToEdit, 'DATA\Position\X', newX);
         SetElementNativeValues(refToEdit, 'DATA\Position\Y', newY);
         SetElementNativeValues(refToEdit, 'DATA\Position\Z', newZ);
+
+        // MORE: if this is a loaddoor, also process the other door's doormarker
+        otherDoor := pathLinksTo(refToEdit, 'XTEL\Door');
+        if(assigned(otherDoor)) then begin
+            processLoadDoor(otherDoor);
+        end;
     end;
 
     function showGui(curTargetFile: IInterface): boolean;
@@ -213,7 +236,7 @@ unit OffsetCellRefs;
     begin
         Result := 0;
         isFirstRef := true;
-        
+
         numNavmeshes := 0;
         numRefs := 0;
 
@@ -273,7 +296,7 @@ unit OffsetCellRefs;
     function Finalize: integer;
     begin
         Result := 0;
-        
+
         AddMessage('Processed '+IntToStr(numRefs)+' references and '+IntToStr(numNavmeshes)+' navmeshes.');
         AddMessage('New Cell Bounds are:');
         AddMessage('Xmin: '+FloatToStr(minX)+'; Xmax: '+FloatToStr(maxX));
