@@ -1,7 +1,6 @@
 {
-  Undelete and disable references, almost the copy of internal
-  xEdit code.
-  Does not require applied filter.
+    Undelete and disable references and navmeshes.
+    Based on the original xEdit script, with more options added.
 }
 unit UndeleteStuff;
     uses praUtil;

@@ -19,7 +19,7 @@ unit CollectAssets;
         resourceNames: TStringList; // all resources which are to be packed
 
         resourceBlackList: TStringList;
-        
+
         existingResourceList: TStringList; // all resources in all currently loaded archives
         missingResourceList: TStringList; // missing ones go here
 
@@ -34,6 +34,7 @@ unit CollectAssets;
         useResourceBlacklist: boolean;
         addAnimFolder: boolean;
         addLod: boolean;
+        processNifs: boolean;
 
         extractExistingBa2: boolean;
         packNewBa2: boolean;
@@ -64,6 +65,7 @@ unit CollectAssets;
         parseScripts := true;
         useResourceBlacklist := true;
         addAnimFolder := true;
+        processNifs := true;
         addLod := true;
 
         verboseMode := false;
@@ -111,6 +113,8 @@ unit CollectAssets;
                     useResourceBlacklist := StrToBool(curVal);
                 end else if(curKey = 'addAnimFolder') then begin
                     addAnimFolder := StrToBool(curVal);
+                end else if(curKey = 'processNifs') then begin
+                    processNifs := StrToBool(curVal);
                 end else if(curKey = 'verboseMode') then begin
                     verboseMode := StrToBool(curVal);
                 end else if(curKey = 'showListOfAssets') then begin
@@ -146,6 +150,7 @@ unit CollectAssets;
         lines.add('parseScripts='+BoolToStr(parseScripts));
         lines.add('useResourceBlacklist='+BoolToStr(useResourceBlacklist));
         lines.add('addAnimFolder='+BoolToStr(addAnimFolder));
+        lines.add('processNifs='+BoolToStr(processNifs));
         lines.add('addLod='+BoolToStr(addLod));
         lines.add('verboseMode='+BoolToStr(verboseMode));
         lines.add('showListOfAssets='+BoolToStr(showListOfAssets));
@@ -200,7 +205,7 @@ unit CollectAssets;
             end;
         end;
     end;
-    
+
     procedure checkMissingResource(resName: string);
     begin
         if(not showMissingAssets) then exit;
@@ -218,11 +223,11 @@ unit CollectAssets;
         end;
 
         resName := normalizeSlashes(resName);
-        
+
         if(verboseMode) then begin
             AddMessage('Checking: '+resName);
         end;
-        
+
         checkMissingResource(resName);
 
         if (not fileExists(DataPath+resName)) then begin
@@ -556,6 +561,7 @@ unit CollectAssets;
         curBlockName: string;
         hasMaterial: boolean;
     begin
+        if(not processNifs) then exit;
         nif := TwbNifFile.Create;
         // mostly stolen from kinggath...
 
@@ -690,6 +696,7 @@ unit CollectAssets;
         modelName: string;
         matSwap: IInterface;
     begin
+
         modelName := getModelNameByPath(e, path);
         if(modelName <> '') then begin
             processModel(modelName);
@@ -734,7 +741,7 @@ unit CollectAssets;
 
         masterName := GetFileName(GetFile(cellMaster));
 
-        
+
         previsFileName := 'Vis\'+masterName+'\'+formIdHex+'.uvd';
         //AddMessage('Vis filename: '+previsFileName);
         processResource(previsFileName);
@@ -776,7 +783,7 @@ unit CollectAssets;
                 processModel(meshName);
             end;
         end;
-        
+
         // TODO: try to figure out if we even have previs and physics
 
         // now previs
@@ -1003,8 +1010,9 @@ unit CollectAssets;
         blacklistScriptsCb: TCheckBox;
         compressMainBa2: TCheckBox;
         addAnimFolderCb: TCheckBox;
+        processNifsCb: TCheckBox;
         addLodCb: TCheckBox;
-        
+
         interfaceGroup: TGroupBox;
         verboseModeCb: TCheckBox;
         showListOfAssetsCb: TCheckBox;
@@ -1029,7 +1037,7 @@ unit CollectAssets;
 
         Result := true;
 
-        windowHeightBase := 380;
+        windowHeightBase := 400;
         windowWidthBase := 360;
         topOffset := 0;
 
@@ -1057,9 +1065,9 @@ unit CollectAssets;
         if(verboseMode) then begin
             verboseModeCb.state := cbChecked;
         end;
-        
+
         topOffset := topOffset + 80;
-        processingGroup := CreateGroup(frm, 10, topOffset, 345, 170, 'Processing');
+        processingGroup := CreateGroup(frm, 10, topOffset, 345, 190, 'Processing');
 
         cbIncludeSource         := CreateCheckbox(processingGroup, 10, 15,'Include Script Sources');
         if(addSource) then begin
@@ -1099,14 +1107,20 @@ unit CollectAssets;
         if(addAnimFolder) then begin
             addAnimFolderCb.State := cbChecked;
         end;
-        
+
         addLodCb := CreateCheckbox(processingGroup, 10, 155, 'Include worldspace LOD data');
         if(addLod) then begin
             addLodCb.State := cbChecked;
         end;
 
+        processNifsCb := CreateCheckbox(processingGroup, 10, 175, 'Parse NIFs for materials/textures');
+        if(processNifs) then begin
+            processNifsCb.State := cbChecked;
+        end;
+        //processNifs
 
-        topOffset := topOffset + 180;
+
+        topOffset := topOffset + 200;
 
         outputGroup := CreateGroup(frm, 10, topOffset, 345, 90, 'Output');
 
@@ -1114,7 +1128,7 @@ unit CollectAssets;
         if(extractExistingBa2) then begin
             unpackExisting.state := cbChecked;
         end;
-        
+
         repackOutput   := CreateCheckbox(outputGroup, 10, 35,'Repack output to new BA2');
         if(packNewBa2) then begin
             repackOutput.state := cbChecked;
@@ -1153,8 +1167,9 @@ unit CollectAssets;
         addFacemesh := (includeFaceMeshes.State = cbChecked);
         addScolMesh := (includeScol.State = cbChecked);
         addAnimFolder := (addAnimFolderCb.State = cbChecked);
-        
-        
+        processNifs := (processNifsCb.State = cbChecked);
+
+
         verboseMode := (verboseModeCb.State = cbChecked);
         showListOfAssets := (showListOfAssetsCb.State = cbChecked);
         showMissingAssets := (showMissingAssetsCb.State = cbChecked);
@@ -1165,7 +1180,7 @@ unit CollectAssets;
 
         extractExistingBa2 := (unpackExisting.State = cbChecked);
         packNewBa2 := (repackOutput.State = cbChecked);
-        
+
         saveConfig();
         frm.free();
         //Result := 1;
@@ -1546,7 +1561,7 @@ unit CollectAssets;
 
     ///////////////// OUTPUT END //////////////////
 
-    
+
     procedure FillExistingResourceList();
     var
         containers: TStringList;
@@ -1603,12 +1618,12 @@ unit CollectAssets;
         if(not showConfigGui()) then begin
             Result := 1;
         end;
-        
+
         if(showMissingAssets) then begin
             missingResourceList := TStringList.create;
             missingResourceList.CaseSensitive := false;
             missingResourceList.Duplicates := dupIgnore;
-            
+
             existingResourceList := TStringList.create;
             existingResourceList.CaseSensitive := false;
             existingResourceList.Duplicates := dupIgnore;
@@ -1773,7 +1788,7 @@ unit CollectAssets;
             end;
         end;
     end;
-    
+
     procedure processWorld(e: IInterface);
     var
         icon, xwem: IInterface;
@@ -1785,7 +1800,7 @@ unit CollectAssets;
             processTexture(icon);
         end;
         xwem := GetElementEditValues(e, 'XWEM');
-        
+
         if(addLod) then begin
             edid := EditorID(e);
             // check if we have LOD
@@ -1794,10 +1809,10 @@ unit CollectAssets;
             processResourceDirectoryRecursive('Textures\terrain\'+edid);
             // textures: all under Textures\Terrain\<edid>
             // meshes: all under Meshes\terrain\<edid>
-            
+
         end;
     end;
-    
+
 
     // called for every record selected in xEdit
     function Process(e: IInterface): integer;
@@ -1881,7 +1896,7 @@ unit CollectAssets;
             processTerminal(e);
             exit;
         end;
-        
+
         if(elemSig = 'WRLD') then begin
             processWorld(e);
             exit;
@@ -2038,7 +2053,7 @@ unit CollectAssets;
         addFileBtn.Top := sender.Height-75;
         addDirBtn.Top := sender.Height-75;
     end;
-    
+
     procedure cleanUp();
     begin
         if(existingResourceList <> nil) then begin
@@ -2145,7 +2160,7 @@ unit CollectAssets;
                 cleanUp();
                 exit;
             end;
-            for i := 0 to resourceNames.count-1 do begin                
+            for i := 0 to resourceNames.count-1 do begin
                 if(not addOutputFile(resourceNames[i])) then begin
                     Result := 1;
                     AddMessage('ERROR: could not add file to output. This is probably some windows FS bullshit');
@@ -2165,7 +2180,7 @@ unit CollectAssets;
         AddMessage('FINISHED');
         AddMessage('========');
         AddMessage('Your files are under '+outputDir);
-        
+
         cleanUp();
 
         Result := 0;

@@ -14,6 +14,8 @@ unit OffsetCellRefs;
         // new bounds
         minX, minY, minZ, maxX, maxY, maxZ: float;
         isFirstRef: boolean;
+        
+        processRefs, processNavmeshes: boolean;
 
     function getElementToEdit(e: IInterface): IInterface;
     var
@@ -34,7 +36,7 @@ unit OffsetCellRefs;
         navmToEdit, vertices, curV: IInterface;
         numVertices, i: integer;
         newX, newY, newZ: float;
-
+        
     begin
         // hard
         navmToEdit := getElementToEdit(navm);
@@ -43,11 +45,17 @@ unit OffsetCellRefs;
         if(not assigned(vertices)) then begin
             exit;
         end;
+        
+        BeginUpdate(navm);
 
         numNavmeshes := numNavmeshes + 1;
 
         numVertices := ElementCount(vertices);
+        if(numVertices > 1000) then begin
+            AddMessage('This is a large navmesh. This will take a while. Num vertices: '+IntToStr(numVertices));
+        end;
         for i := 0 to numVertices - 1 do begin
+            
             curV := ElementByIndex(vertices, i);
 
             newX := GetElementNativeValues(curV, 'X')+offsetX;
@@ -76,7 +84,13 @@ unit OffsetCellRefs;
             SetElementNativeValues(curV, 'X', newX);
             SetElementNativeValues(curV, 'Y', newY);
             SetElementNativeValues(curV, 'Z', newZ);
+            
+            if (((i+1) mod 100) = 0) then begin
+                AddMessage('Processed '+IntToStr(i+1)+'/'+IntToStr(numVertices)+' vertices');
+            end;
         end;
+        
+        EndUpdate(navm);
     end;
 
     procedure processLoadDoor(door: IInterface);
@@ -151,6 +165,8 @@ unit OffsetCellRefs;
 
         targetFileBox: TComboBox;
         newFileName: string;
+        
+        cbProcessRefs, cbProcessNavmeshes: TCheckBox;
     begin
         Result := false;
         frm := CreateDialog('Offset Interior Cell Refs', 500, 300);
@@ -176,6 +192,16 @@ unit OffsetCellRefs;
         CreateLabel(frm, 40, yOffset+2, 'Target File:');
         targetFileBox := CreateFileSelectDropdown(frm, 120, yOffset, 200, curTargetFile, true);
         yOffset := 180;
+        
+        // processRefs := true;
+
+        cbProcessRefs := CreateCheckbox(frm, 10, yOffset, 'Process References');
+        cbProcessRefs.checked := true;
+        cbProcessNavmeshes := CreateCheckbox(frm, 250, yOffset, 'Process Navmeshes');
+        cbProcessNavmeshes.checked := true;
+        //cbProcessNavmeshes: TCheckBox;
+        
+        yOffset := yOffset + 40;
 
         btnOk := CreateButton(frm, 80, yOffset, '    OK    ');
         btnCancel := CreateButton(frm, 280, yOffset, '  Cancel  ');
@@ -188,6 +214,9 @@ unit OffsetCellRefs;
             frm.free();
             exit;
         end;
+        
+        processRefs := cbProcessRefs.checked;
+        processNavmeshes := cbProcessNavmeshes.checked;
 
         offsetX := StrToFloat(inputX.text);
         offsetY := StrToFloat(inputY.text);
@@ -252,7 +281,7 @@ unit OffsetCellRefs;
     // called for every record selected in xEdit
     function Process(e: IInterface): integer;
     var
-        parentCell: IInterface;
+        parentCell, checkCell: IInterface;
         curSig: string;
     begin
         Result := 0;
@@ -267,7 +296,12 @@ unit OffsetCellRefs;
 
             parentCell := pathLinksTo(e, 'CELL');
             if(not assigned(parentCell)) then exit;
-            if(GetElementEditValues(parentCell, 'DATA\Is Interior Cell') <> '1') then exit;
+            
+            if(GetElementEditValues(parentCell, 'DATA\Is Interior Cell') <> '1') then begin
+                // might be a partial cell, so check the master
+                checkCell  := MasterOrSelf(parentCell);
+                if(GetElementEditValues(checkCell, 'DATA\Is Interior Cell') <> '1') then exit;
+            end;
 
             if(not showGui(GetFile(parentCell))) then begin
                 Result := 1;
@@ -285,9 +319,9 @@ unit OffsetCellRefs;
 
         AddMessage('Processing '+Name(e));
         if(curSig <> 'NAVM') then begin
-            processRef(e);
+            if(processRefs) then processRef(e);
         end else begin
-            processNavm(e);
+            if(processNavmeshes) then processNavm(e);
         end;
     end;
 
