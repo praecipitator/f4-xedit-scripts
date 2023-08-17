@@ -234,7 +234,7 @@ unit MakeSortingPatches;
 
         prepareFiles(patcherConfig.S['baseName']);
         Result := 0;
-        
+
         keepTheseTags := TStringList.create;
         keepTheseTags.add('[PRA]');
     end;
@@ -262,7 +262,9 @@ unit MakeSortingPatches;
         bod2tags := GetElementEditValues(e, 'BOD2\First Person Flags');
         if(bod2tags <> '') then begin
             // it seems that these flags are in the wrong order...
-            bod2tags := reverseString(bod2tags);
+            // TODO fix this, at some point with proper flag handling
+
+            bod2tags := StringReverse(bod2tags);
             bod2flags := BinToInt(bod2tags);
             //AddMessage('Flags: '+bod2tags+' '+IntToStr(bod2tags));
             if(bod2flags = $40000000) then begin
@@ -631,7 +633,7 @@ unit MakeSortingPatches;
 
         Result := (jsonArrayContains(tagBare, extraValidTags));
     end;
-    
+
     function stripTagExtra(text: String): string;
     var
         c, tag, tagBare, tagNoBrackets: string;
@@ -667,7 +669,7 @@ unit MakeSortingPatches;
         //end;
         // Result := (jsonArrayContains(tagBare, extraValidTags));
     end;
-    
+
     function stripTag(inName: string): string;
     begin
         Result := trim(regexExtract(inName, tagStripRegex, 1));

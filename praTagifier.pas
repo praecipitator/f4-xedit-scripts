@@ -684,7 +684,7 @@ unit praTagifier;
         bod2tags := GetElementEditValues(e, 'BOD2\First Person Flags');
         if(bod2tags <> '') then begin
             // it seems that these flags are in the wrong order...
-            bod2tags := reverseString(bod2tags);
+            bod2tags := StringReverse(bod2tags);
             bod2flags := BinToInt(bod2tags);
             //AddMessage('Flags: '+bod2tags+' '+IntToStr(bod2tags));
             if(bod2flags = $40000000) then begin

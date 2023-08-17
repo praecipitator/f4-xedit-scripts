@@ -231,7 +231,7 @@ unit scraplink;
             curRef := ReferencedByIndex(e, i);
 
             if(Signature(curRef) = 'COBJ') then begin
-                product := LinksTo(ebp(curRef, 'CNAM'));
+                product := pathLinksTo(curRef, 'CNAM');
 
                 if(isSameForm(product, e)) then begin
                     Result := true;

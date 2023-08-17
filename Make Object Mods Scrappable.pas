@@ -213,7 +213,7 @@ unit MakeModsScrappable;
         if(not assigned(cobj)) then exit;
 
         if not Assigned(targetFile) then begin
-            targetFile := FileSelect('Select Target File');
+            targetFile := ShowFileSelectDialog('Select Target File');
 
             if not Assigned(targetFile) then begin
                 AddMessage('File selection dialog was cancelled or failed.');

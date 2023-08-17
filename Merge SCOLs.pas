@@ -69,14 +69,14 @@ unit MergeScols;
                 end;
                 
 
-                seev(curPlacement, 'Position\X', curPlacementObj.O['pos'].F['x']);
-                seev(curPlacement, 'Position\Y', curPlacementObj.O['pos'].F['y']);
-                seev(curPlacement, 'Position\Z', curPlacementObj.O['pos'].F['z']);
+                SetElementEditValues(curPlacement, 'Position\X', curPlacementObj.O['pos'].F['x']);
+                SetElementEditValues(curPlacement, 'Position\Y', curPlacementObj.O['pos'].F['y']);
+                SetElementEditValues(curPlacement, 'Position\Z', curPlacementObj.O['pos'].F['z']);
 
-                seev(curPlacement, 'Rotation\X', curPlacementObj.O['rot'].F['x']);
-                seev(curPlacement, 'Rotation\Y', curPlacementObj.O['rot'].F['y']);
-                seev(curPlacement, 'Rotation\Z', curPlacementObj.O['rot'].F['z']);
-                seev(curPlacement, 'Scale', curPlacementObj.F['scale']);
+                SetElementEditValues(curPlacement, 'Rotation\X', curPlacementObj.O['rot'].F['x']);
+                SetElementEditValues(curPlacement, 'Rotation\Y', curPlacementObj.O['rot'].F['y']);
+                SetElementEditValues(curPlacement, 'Rotation\Z', curPlacementObj.O['rot'].F['z']);
+                SetElementEditValues(curPlacement, 'Scale', curPlacementObj.F['scale']);
 
             end;
 
@@ -93,7 +93,7 @@ unit MergeScols;
     begin
         scale := 1;
         
-        scaleString := geev(scolRef, 'XSCL');
+        scaleString := GetElementEditValues(scolRef, 'XSCL');
         if(scaleString <> '') then begin
             scale := StrToFloat(scaleString);
         end;
@@ -123,7 +123,7 @@ unit MergeScols;
                 partRotVector := getRotationVector(curPlacement, '');
 
                 partScale := 1.0;
-                scaleString := geev(curPlacement, 'Scale');
+                scaleString := GetElementEditValues(curPlacement, 'Scale');
                 if(scaleString <> '') then begin
                     partScale := StrToFloat(scaleString);
                 end;

@@ -17,7 +17,7 @@ unit AutoDoorifier;
         Result := false;
         
         if not Assigned(ToFile) then begin
-            ToFile := FileSelect('Select file to create overrides in');
+            ToFile := ShowFileSelectDialog('Select file to create overrides in');
 
             if not Assigned(ToFile) then begin
                 Exit;

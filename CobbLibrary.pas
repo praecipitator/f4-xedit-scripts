@@ -897,9 +897,9 @@ unit CobbLibrary;
         if(path <> '') then path := path + '\';
 
         Result := newVector(
-            StrToFloat(geev(e, path+'Position\X')),
-            StrToFloat(geev(e, path+'Position\Y')),
-            StrToFloat(geev(e, path+'Position\Z'))
+            StrToFloat(GetElementEditValues(e, path+'Position\X')),
+            StrToFloat(GetElementEditValues(e, path+'Position\Y')),
+            StrToFloat(GetElementEditValues(e, path+'Position\Z'))
         );
     end;
 
@@ -907,9 +907,9 @@ unit CobbLibrary;
     begin
         if(path <> '') then path := path + '\';
         Result := newVector(
-            StrToFloat(geev(e, path+'Rotation\X')),
-            StrToFloat(geev(e, path+'Rotation\Y')),
-            StrToFloat(geev(e, path+'Rotation\Z'))
+            StrToFloat(GetElementEditValues(e, path+'Rotation\X')),
+            StrToFloat(GetElementEditValues(e, path+'Rotation\Y')),
+            StrToFloat(GetElementEditValues(e, path+'Rotation\Z'))
         );
     end;
 

@@ -37,7 +37,7 @@ unit setStatsToRobotArmor;
         [95] ap_Bot_ModArmsSlotA "Arm Mod Slot" [KYWD:00047E24] // thruster arm armor
         [56] ap_Bot_ModSlotA "Top Slot" [KYWD:00047E2C] // handy top armor
         }
-        leFile := FileSelect('Select Target File');
+        leFile := ShowFileSelectDialog('Select Target File');
         if(not assigned(leFile)) then begin
             Result := 1;
             exit;
@@ -56,7 +56,7 @@ unit setStatsToRobotArmor;
             curRef := ReferencedByIndex(e, i);
 
             if(Signature(curRef) = 'COBJ') then begin
-                product := LinksTo(ebp(curRef, 'CNAM'));
+                product := PathLinksTo(curRef, 'CNAM');
 
                 if(isSameForm(product, e)) then begin
                     Result := true;

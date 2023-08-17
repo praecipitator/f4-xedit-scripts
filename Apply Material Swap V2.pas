@@ -13,7 +13,7 @@ unit ApplyMatSwapV2;
     function Initialize(): integer;
     begin
         Result := 0;
-        targetFile := FileSelect('Select Target File');
+        targetFile := ShowFileSelectDialog('Select Target File');
         if not assigned(targetFile) then begin
             Result := 1;
         end;
