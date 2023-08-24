@@ -1,7 +1,7 @@
 {
     Some useful functions.
 
-    Version 2023-09-17
+    Version 2023-09-24
 }
 unit PraUtil;
 
@@ -336,6 +336,31 @@ unit PraUtil;
             if (Signature(curGroup) = 'GRUP') then begin
                 curRecord := MainRecordByEditorID(curGroup, edid);
                 if(assigned(curRecord)) then begin
+                    Result := curRecord;
+                    exit;
+                end;
+            end;
+        end;
+    end;
+    
+    function findInteriorCellByEdid(edid: string): IInterface;
+    var
+        iFiles: integer;
+        curFile: IInterface;
+        curRecord: IInterface;
+    begin
+        Result := nil;
+
+        if(edid = '') then exit;
+
+        curRecord := nil;
+        for iFiles := 0 to FileCount-1 do begin
+            curFile := FileByIndex(iFiles);
+
+            if(assigned(curFile)) then begin
+
+                curRecord := findInteriorCellInFileByEdid(curFile, edid);
+                if (assigned(curRecord)) then begin
                     Result := curRecord;
                     exit;
                 end;
@@ -3371,8 +3396,1332 @@ unit PraUtil;
             objFile.free;
         end;
     end;
+    
+    // === JSON FUNCTIONS ===
+    // merged in from an old defunct JSON library, for an old defunct project
+    function jsonTypeToString(t: integer): string;
+    begin
+        case t of
+            JSON_TYPE_NONE:     Result := 'none';
+            JSON_TYPE_STRING:   Result := 'string';
+            JSON_TYPE_INT:      Result := 'int';
+            JSON_TYPE_LONG:     Result := 'long';
+            JSON_TYPE_ULONG:    Result := 'ulong';
+            JSON_TYPE_FLOAT:    Result := 'float';
+            JSON_TYPE_DATETIME: Result := 'datetime';
+            JSON_TYPE_BOOL:     Result := 'bool';
+            JSON_TYPE_ARRAY:    Result := 'array';
+            JSON_TYPE_OBJECT:   Result := 'object';
+        end;
+    end;
 
-    // debug functions
+    // prefix-based helpers
+    function getJsonKeyByPrefix(obj: TJsonObject; substr: string): string;
+    var
+        i: integer;
+        curName: string;
+    begin
+        Result := substr;
+        for i:=0 to obj.count-1 do begin
+            curName := obj.Names[i];
+            if(strStartsWith(curName, substr)) then begin
+                Result := curName;
+                exit;
+            end;
+        end;
+    end;
+
+    function getTypeAtPrefixPath(src: TJsonObject; objPath: string): int;
+    var
+        tmpList: TStringList;
+        curSubpath: string;
+        i, lastIndex: integer;
+        pathObj: TJsonObject;
+    begin
+        Result := JSON_TYPE_NONE;
+        tmpList := TStringList.create;
+        tmpList.Delimiter := '\';
+        tmpList.StrictDelimiter := true;
+        tmpList.DelimitedText := objPath;
+        pathObj := src;
+
+        lastIndex := tmpList.count-1;
+        for i:=0 to lastIndex do begin
+            curSubpath := getJsonKeyByPrefix(src, tmpList[i]);
+            if(i < lastIndex) then begin
+                if(pathObj.Types[curSubpath] <> JSON_TYPE_OBJECT) then begin
+                    tmpList.free();
+                    exit;
+                end;
+                pathObj := pathObj.O[curSubpath];
+            end else begin
+                Result := pathObj.Types[curSubpath];
+            end;
+        end;
+
+        tmpList.free();
+    end;
+
+    function getValueAtPrefixPath(src: TJsonObject; objPath: string; jsonType: integer; default: variant): variant;
+    var
+        tmpList: TStringList;
+        curSubpath: string;
+        i, lastIndex: integer;
+        pathObj: TJsonObject;
+    begin
+        Result := default;
+        tmpList := TStringList.create;
+        tmpList.Delimiter := '\';
+        tmpList.StrictDelimiter := true;
+        tmpList.DelimitedText := objPath;
+        pathObj := src;
+
+        lastIndex := tmpList.count-1;
+        for i:=0 to lastIndex do begin
+            curSubpath := getJsonKeyByPrefix(src, tmpList[i]);
+            if(pathObj.Types[curSubpath] = JSON_TYPE_NONE) then begin
+                tmpList.free();
+                exit;
+            end;
+
+            if(i < lastIndex) then begin
+                pathObj := pathObj.O[curSubpath];
+            end else begin
+                if(jsonType = -1) then begin
+                    jsonType := pathObj.Types[curSubpath];
+                end;
+                case jsonType of
+                    JSON_TYPE_STRING:   Result := pathObj.S[curSubpath];
+                    JSON_TYPE_INT:      Result := pathObj.I[curSubpath];
+                    JSON_TYPE_LONG:     Result := pathObj.L[curSubpath];
+                    JSON_TYPE_ULONG:    Result := pathObj.U[curSubpath];
+                    JSON_TYPE_FLOAT:    Result := pathObj.F[curSubpath];
+                    JSON_TYPE_DATETIME: Result := pathObj.D[curSubpath];
+                    JSON_TYPE_BOOL:     Result := pathObj.B[curSubpath];
+                    JSON_TYPE_ARRAY:    Result := pathObj.A[curSubpath];
+                    JSON_TYPE_OBJECT:   Result := pathObj.O[curSubpath];
+                end;
+
+            end;
+        end;
+
+        tmpList.free();
+    end;
+
+    procedure setValueAtPrefixPath(src: TJsonObject; objPath: string; jsonType: integer; value: variant);
+    var
+        tmpList: TStringList;
+        curSubpath: string;
+        i, lastIndex: integer;
+        pathObj: TJsonObject;
+    begin
+
+        tmpList := TStringList.create;
+        tmpList.Delimiter := '\';
+        tmpList.StrictDelimiter := true;
+        tmpList.DelimitedText := objPath;
+        pathObj := src;
+
+        lastIndex := tmpList.count-1;
+        for i:=0 to lastIndex do begin
+            curSubpath := getJsonKeyByPrefix(src, tmpList[i]);
+
+            if(i < lastIndex) then begin
+                pathObj := pathObj.O[curSubpath];
+            end else begin
+                case jsonType of
+                    JSON_TYPE_STRING:   pathObj.S[curSubpath] := value;
+                    JSON_TYPE_INT:      pathObj.I[curSubpath] := value;
+                    JSON_TYPE_LONG:     pathObj.L[curSubpath] := value;
+                    JSON_TYPE_ULONG:    pathObj.U[curSubpath] := value;
+                    JSON_TYPE_FLOAT:    pathObj.F[curSubpath] := value;
+                    JSON_TYPE_DATETIME: pathObj.D[curSubpath] := value;
+                    JSON_TYPE_BOOL:     pathObj.B[curSubpath] := value;
+                    JSON_TYPE_ARRAY:    pathObj.A[curSubpath] := cloneJsonArray(value);
+                    JSON_TYPE_OBJECT:   pathObj.O[curSubpath] := cloneJsonObject(value);
+                end;
+            end;
+        end;
+
+        tmpList.free();
+    end;
+
+    // element helpers
+    procedure elemToJsonArrayRecursive(e: IInterface; resultSet: TJsonArray);
+    var
+        i: integer;
+        child: IInterface;
+        curName, curEditVal: string;
+        curNativeVal: variant;
+        curArr: TJsonArray;
+        curObj: TJsonObject;
+        curLinksTo: IInterface;
+    begin
+        if(not assigned(e)) then exit;
+        for i:=0 to ElementCount(e)-1 do begin
+            child := ElementByIndex(e, i);
+            curEditVal := GetEditValue(child);
+            if(curEditVal <> '') then begin
+                curLinksTo := LinksTo(child);
+                if(assigned(curLinksTo)) then begin
+                    resultSet.add(FormToAbsStr(curLinksTo));
+                end else begin
+                    curNativeVal := GetNativeValue(child);
+                    resultSet.add(curNativeVal);
+                end;
+            end else begin
+                if(isSubrecordArray(child)) then begin
+                    curArr := resultSet.addArray();
+                    elemToJsonArrayRecursive(child, curArr);
+                end else begin
+                    if(isSubrecordScalar(child)) then begin
+                        resultSet.add('');
+                    end else begin;
+                        curObj := resultSet.addObject();
+                        elemToJsonObjectRecursive(child, curObj);
+                    end;
+                end;
+            end;
+        end;
+    end;
+
+    procedure elemToJsonObjectRecursive(e: IInterface; resultSet: TJsonObject);
+    var
+        i: Integer;
+        child: IInterface;
+        curName, curEditVal: string;
+        curArr: TJsonArray;
+        curObj: TJsonObject;
+        curNativeVal: variant;
+        curLinksTo: IInterface;
+    begin
+        if(not assigned(e)) then exit;
+        for i := 0 to ElementCount(e)-1 do begin
+            child := ElementByIndex(e, i);
+            curName := Name(child);
+            curEditVal := GetEditValue(child);
+            if(curEditVal <> '') then begin
+                curLinksTo := LinksTo(child);
+                if(assigned(curLinksTo)) then begin
+                    resultSet.S[curName] := FormToAbsStr(curLinksTo);
+                end else begin
+                    curNativeVal := GetNativeValue(child);
+                    setJsonObjectValueVariant(resultSet, curName, curNativeVal, curEditVal);
+                end;
+            end else begin
+                if(isSubrecordArray(child)) then begin
+                    curArr := TJsonArray.create;
+                    elemToJsonArrayRecursive(child, curArr);
+                    resultSet.A[curName] := curArr;
+                end else begin
+                    if(isSubrecordScalar(child)) then begin
+                        resultSet.S[curName] := '';
+                    end else begin
+                        elemToJsonObjectRecursive(child, resultSet.O[curName]);
+                    end;
+                end;
+            end;
+        end;
+    end;
+
+    {
+        Returns a JSON representing the given (sub)element's structure
+    }
+    function elemToJson(e: IInterface): TJsonObject;
+    begin
+        Result := TJsonObject.create;
+        elemToJsonObjectRecursive(e, Result);
+    end;
+
+    procedure removeEqualArrayEntries(check, compareTo: TJsonArray);
+    var
+        i, curType: integer;
+        curName: string;
+    begin
+        for i:=0 to check.count-1 do begin
+            if(i>=compareTo.count) then exit;
+            curType := check.Types[i];
+            case curType of
+                JSON_TYPE_ARRAY:
+                    begin
+                        removeEqualArrayEntries(check.A[i], compareTo.A[i]);
+                    end;
+                JSON_TYPE_OBJECT:
+                    begin
+                        removeEqualObjectEntries(check.O[i], compareTo.O[i]);
+                    end;
+            end;
+        end;
+
+    end;
+
+    {
+        Removes entries from check which are equal to compareTo
+    }
+    procedure removeEqualObjectEntries(check, compareTo: TJsonObject);
+    var
+        i, curType: integer;
+        curName: string;
+        namesToRemove: TStringList;
+    begin
+        namesToRemove := TStringList.create;
+        for i:=0 to check.count-1 do begin
+            curName := check.Names[i];
+            curType := check.Types[curName];
+            case curType of
+                JSON_TYPE_ARRAY:
+                    begin
+                        if(check.A[curName].toString() = compareTo.A[curName].toString()) then begin
+                            namesToRemove.add(curName);
+                        end else begin
+                            removeEqualArrayEntries(check.A[curName], compareTo.A[curName]);
+                            if(check.A[curName].count = 0) then begin
+                                namesToRemove.add(curName);
+                            end;
+                        end;
+                    end;
+                JSON_TYPE_OBJECT:
+                    begin
+                        removeEqualObjectEntries(check.O[curName], compareTo.O[curName]);
+                        if(check.O[curName].count = 0) then begin
+                            namesToRemove.add(curName);
+                        end;
+                    end;
+                else
+                    begin
+                        if(check.S[curName] = compareTo.S[curName]) then begin
+                            // now what?
+                            namesToRemove.add(curName);
+                        end;
+                    end;
+            end;
+        end;
+
+        for i:=0 to namesToRemove.count-1 do begin
+            check.remove(namesToRemove[i]);
+        end;
+        namesToRemove.free();
+    end;
+
+    function getObjectByPath(src: TJsonObject; objPath: string): TJsonObject;
+    var
+        tmpList: TStringList;
+        curSubpath: string;
+        i: integer;
+    begin
+        tmpList := TStringList.create;
+        tmpList.Delimiter := '\';
+        tmpList.StrictDelimiter := true;
+        tmpList.DelimitedText := objPath;
+        Result := src;
+
+        for i:=0 to tmpList.count-1 do begin
+            curSubpath := tmpList[i];
+            Result := Result.O[curSubpath];
+        end;
+
+        tmpList.free();
+    end;
+
+    function getTypeAtPath(src: TJsonObject; objPath: string): int;
+    var
+        tmpList: TStringList;
+        curSubpath: string;
+        i, lastIndex: integer;
+        pathObj: TJsonObject;
+    begin
+        Result := JSON_TYPE_NONE;
+        tmpList := TStringList.create;
+        tmpList.Delimiter := '\';
+        tmpList.StrictDelimiter := true;
+        tmpList.DelimitedText := objPath;
+        pathObj := src;
+
+        lastIndex := tmpList.count-1;
+        for i:=0 to lastIndex do begin
+            curSubpath := tmpList[i];
+            if(i < lastIndex) then begin
+                if(pathObj.Types[curSubpath] <> JSON_TYPE_OBJECT) then begin
+                    tmpList.free();
+                    exit;
+                end;
+                pathObj := pathObj.O[curSubpath];
+            end else begin
+                Result := pathObj.Types[curSubpath];
+            end;
+        end;
+
+        tmpList.free();
+    end;
+
+    function getVariantValueAtPath(src: TJsonObject; objPath: string; default: variant): string;
+    var
+        tmpList: TStringList;
+        curSubpath: string;
+        i, lastIndex: integer;
+        pathObj: TJsonObject;
+    begin
+        Result := default;
+        tmpList := TStringList.create;
+        tmpList.Delimiter := '\';
+        tmpList.StrictDelimiter := true;
+        tmpList.DelimitedText := objPath;
+        pathObj := src;
+
+        lastIndex := tmpList.count-1;
+        for i:=0 to lastIndex do begin
+            curSubpath := tmpList[i];
+            if(pathObj.Types[curSubpath] = JSON_TYPE_NONE) then begin
+                tmpList.free();
+                exit;
+            end;
+
+            if(i < lastIndex) then begin
+                pathObj := pathObj.O[curSubpath];
+            end else begin
+                Result := getJsonObjectValueVariant(pathObj, curSubpath, default);
+            end;
+        end;
+
+        tmpList.free();
+    end;
+
+
+    function getStringValueAtPath(src: TJsonObject; objPath: string; default: string): string;
+    var
+        tmpList: TStringList;
+        curSubpath: string;
+        i, lastIndex: integer;
+        pathObj: TJsonObject;
+    begin
+        Result := default;
+        tmpList := TStringList.create;
+        tmpList.Delimiter := '\';
+        tmpList.StrictDelimiter := true;
+        tmpList.DelimitedText := objPath;
+        pathObj := src;
+
+        lastIndex := tmpList.count-1;
+        for i:=0 to lastIndex do begin
+            curSubpath := tmpList[i];
+            if(pathObj.Types[curSubpath] = JSON_TYPE_NONE) then begin
+                tmpList.free();
+                exit;
+            end;
+
+            if(i < lastIndex) then begin
+                pathObj := pathObj.O[curSubpath];
+            end else begin
+                Result := pathObj.S[curSubpath];
+            end;
+        end;
+
+        tmpList.free();
+    end;
+
+    procedure putStringValueAtPath(src: TJsonObject; objPath: string; value: string);
+    var
+        tmpList: TStringList;
+        curSubpath: string;
+        i, lastIndex: integer;
+        pathObj: TJsonObject;
+    begin
+        tmpList := TStringList.create;
+        tmpList.Delimiter := '\';
+        tmpList.StrictDelimiter := true;
+        tmpList.DelimitedText := objPath;
+        pathObj := src;
+
+        lastIndex := tmpList.count-1;
+        for i:=0 to lastIndex do begin
+            curSubpath := tmpList[i];
+            if(i < lastIndex) then begin
+                pathObj := pathObj.O[curSubpath];
+            end else begin
+                pathObj.S[curSubpath] := value;
+            end;
+        end;
+
+        tmpList.free();
+    end;
+
+    function getArrayValueAtPath(src: TJsonObject; objPath: string): string;
+    var
+        tmpList: TStringList;
+        curSubpath: string;
+        i, lastIndex: integer;
+        pathObj: TJsonObject;
+    begin
+        Result := default;
+        tmpList := TStringList.create;
+        tmpList.Delimiter := '\';
+        tmpList.StrictDelimiter := true;
+        tmpList.DelimitedText := objPath;
+        pathObj := src;
+
+        lastIndex := tmpList.count-1;
+        for i:=0 to lastIndex do begin
+            curSubpath := tmpList[i];
+            if(i < lastIndex) then begin
+                pathObj := pathObj.O[curSubpath];
+            end else begin
+                Result := pathObj.A[curSubpath];
+            end;
+        end;
+
+        tmpList.free();
+    end;
+
+    function putArrayValueAtPath(src: TJsonObject; objPath: string; value: TJsonArray): string;
+    var
+        tmpList: TStringList;
+        curSubpath: string;
+        i, lastIndex: integer;
+        pathObj: TJsonObject;
+    begin
+        tmpList := TStringList.create;
+        tmpList.Delimiter := '\';
+        tmpList.StrictDelimiter := true;
+        tmpList.DelimitedText := objPath;
+        pathObj := src;
+
+        lastIndex := tmpList.count-1;
+        for i:=0 to lastIndex do begin
+            curSubpath := tmpList[i];
+            if(i < lastIndex) then begin
+                pathObj := pathObj.O[curSubpath];
+            end else begin
+                pathObj.A[curSubpath] := cloneJsonArray(value);
+            end;
+        end;
+
+        tmpList.free();
+    end;
+
+    function getObjectValueAtPath(src: TJsonObject; objPath: string): string;
+    var
+        tmpList: TStringList;
+        curSubpath: string;
+        i, lastIndex: integer;
+        pathObj: TJsonObject;
+    begin
+        Result := default;
+        tmpList := TStringList.create;
+        tmpList.Delimiter := '\';
+        tmpList.StrictDelimiter := true;
+        tmpList.DelimitedText := objPath;
+        pathObj := src;
+
+        lastIndex := tmpList.count-1;
+        for i:=0 to lastIndex do begin
+            curSubpath := tmpList[i];
+            if(i < lastIndex) then begin
+                pathObj := pathObj.O[curSubpath];
+            end else begin
+                Result := pathObj.O[curSubpath];
+            end;
+        end;
+
+        tmpList.free();
+    end;
+
+    function putObjectValueAtPath(src: TJsonObject; objPath: string; value: TJsonObject): string;
+    var
+        tmpList: TStringList;
+        curSubpath: string;
+        i, lastIndex: integer;
+        pathObj: TJsonObject;
+    begin
+        tmpList := TStringList.create;
+        tmpList.Delimiter := '\';
+        tmpList.StrictDelimiter := true;
+        tmpList.DelimitedText := objPath;
+        pathObj := src;
+
+        lastIndex := tmpList.count-1;
+        for i:=0 to lastIndex do begin
+            curSubpath := tmpList[i];
+            if(i < lastIndex) then begin
+                pathObj := pathObj.O[curSubpath];
+            end else begin
+                pathObj.O[curSubpath] := cloneJsonObject(value);
+            end;
+        end;
+
+        tmpList.free();
+    end;
+
+    procedure setJsonObjectValueVariant(targetJson: TJsonObject; key: string; v: variant; fallbackV: string);
+    var
+        variantType: integer;
+    begin
+        variantType := (varType(v) and VarTypeMask);
+
+        case variantType of
+            varInteger, 18:
+                targetJson.I[key] := v;
+            19, 20:
+                targetJson.L[key] := v;
+            varDouble:
+                targetJson.F[key] := v;
+            varString, 258:
+                targetJson.S[key] := v;
+            varBoolean:
+                targetJson.B[key] := v;
+            else
+                targetJson.S[key] := fallbackV;
+        end;
+    end;
+
+    function getJsonObjectValueVariant(obj: TJsonObject; key: string; default: variant): variant;
+    var
+        curType: integer;
+    begin
+        Result := default;
+        curType := obj.Types[key];
+        case curType of
+            JSON_TYPE_STRING:
+                Result := obj.S[key];
+            JSON_TYPE_INT:
+                Result := obj.I[key];
+            JSON_TYPE_LONG:
+                Result := obj.L[key];
+            JSON_TYPE_ULONG:
+                Result := obj.U[key];
+            JSON_TYPE_FLOAT:
+                Result := obj.F[key];
+            JSON_TYPE_DATETIME:
+                Result := obj.D[key];
+            JSON_TYPE_BOOL:
+                Result := obj.B[key];
+            JSON_TYPE_ARRAY:
+                Result := obj.A[key];
+            JSON_TYPE_OBJECT:
+                Result := obj.O[key];
+        end;
+    end;
+
+    function getJsonArrayValueVariant(arr: TJsonArray; key: integer; default: variant): variant;
+    var
+        curType: integer;
+    begin
+        Result := default;
+        curType := arr.Types[key];
+        case curType of
+            JSON_TYPE_STRING:
+                Result := arr.S[key];
+            JSON_TYPE_INT:
+                Result := arr.I[key];
+            JSON_TYPE_LONG:
+                Result := arr.L[key];
+            JSON_TYPE_ULONG:
+                Result := arr.U[key];
+            JSON_TYPE_FLOAT:
+                Result := arr.F[key];
+            JSON_TYPE_DATETIME:
+                Result := arr.D[key];
+            JSON_TYPE_BOOL:
+                Result := arr.B[key];
+            JSON_TYPE_ARRAY:
+                Result := arr.A[key];
+            JSON_TYPE_OBJECT:
+                Result := arr.O[key];
+        end;
+    end;
+
+    {
+        "typesafe" getJsonObjectValue, returns value if the given type matches, default otherwise
+    }
+    function getJsonObjectValueTS(obj: TJsonObject; key: string; valType: integer; default: variant): variant;
+    begin
+        Result := default;
+        if(obj.Types[key] <> valType) then exit;
+
+        Result := getJsonObjectValueVariant(obj, key, default);
+    end;
+
+    {
+        getJsonObjectValue with typecasting, tries to cast the value to the given type.
+        Doesn't support casting to date, array, or object.
+    }
+    function getJsonObjectValueTC(obj: TJsonObject; key: string; targetType: integer; default: variant): variant;
+    var
+        valType: integer;
+    begin
+        valType := obj.Types[key];
+        Result := default;
+        case valType of
+            JSON_TYPE_STRING:
+                begin
+                    case targetType of
+                        JSON_TYPE_STRING:   Result := obj.S[key];
+                        JSON_TYPE_INT:      Result := StrToInt(obj.S[key]);
+                        JSON_TYPE_LONG:     Result := StrToInt(obj.S[key]);
+                        JSON_TYPE_ULONG:    Result := StrToInt(obj.S[key]);
+                        JSON_TYPE_FLOAT:    Result := StrToFloat(obj.S[key]);
+                        // JSON_TYPE_DATETIME  = 6; // datetime I honestly don't know
+                        JSON_TYPE_BOOL:     Result := StrToBool(obj.S[key]);
+                        //JSON_TYPE_ARRAY     Result := // mabye add parsing?
+                        //JSON_TYPE_OBJECT    Result :=
+                    end;
+                end;
+            JSON_TYPE_INT:
+                begin
+                    case targetType of
+                        JSON_TYPE_STRING:   Result := IntToStr(obj.I[key]);
+                        JSON_TYPE_INT:      Result := obj.I[key];
+                        JSON_TYPE_LONG:     Result := obj.I[key];
+                        JSON_TYPE_ULONG:    Result := abs(obj.I[key]);
+                        JSON_TYPE_FLOAT:    Result := (obj.I[key] * 1.0);
+                        JSON_TYPE_BOOL:     Result := (obj.I[key] <> 0);
+                    end;
+                end;
+            JSON_TYPE_LONG:
+                begin
+                    case targetType of
+                        JSON_TYPE_STRING:   Result := IntToStr(obj.L[key]);
+                        JSON_TYPE_INT:      Result := obj.L[key];
+                        JSON_TYPE_LONG:     Result := obj.L[key];
+                        JSON_TYPE_ULONG:    Result := abs(obj.L[key]);
+                        JSON_TYPE_FLOAT:    Result := (obj.L[key] * 1.0);
+                        JSON_TYPE_BOOL:     Result := (obj.L[key] <> 0);
+                    end;
+                end;
+            JSON_TYPE_ULONG:
+                begin
+                    case targetType of
+                        JSON_TYPE_STRING:   Result := IntToStr(obj.U[key]);
+                        JSON_TYPE_INT:      Result := obj.U[key];
+                        JSON_TYPE_LONG:     Result := obj.U[key];
+                        JSON_TYPE_ULONG:    Result := obj.U[key];
+                        JSON_TYPE_FLOAT:    Result := (obj.U[key] * 1.0);
+                        JSON_TYPE_BOOL:     Result := (obj.U[key] <> 0);
+                    end;
+                end;
+            JSON_TYPE_FLOAT:
+                begin
+                    case targetType of
+                        JSON_TYPE_STRING:   Result := FloatToStr(obj.L[key]);
+                        JSON_TYPE_INT:      Result := Trunc(obj.F[key]);
+                        JSON_TYPE_LONG:     Result := Trunc(obj.F[key]);
+                        JSON_TYPE_ULONG:    Result := abs(Trunc(obj.F[key]));
+                        JSON_TYPE_FLOAT:    Result := obj.F[key];
+                        JSON_TYPE_BOOL:     Result := (obj.F[key] <> 0);
+                    end;
+                end;
+            JSON_TYPE_BOOL:
+                begin
+                    case targetType of
+                        JSON_TYPE_STRING:   Result := BoolToStr(obj.B[key]);
+                        JSON_TYPE_INT:      Result := ternaryOp(obj.B[key], 1, 0);
+                        JSON_TYPE_LONG:     Result := ternaryOp(obj.B[key], 1, 0);
+                        JSON_TYPE_ULONG:    Result := ternaryOp(obj.B[key], 1, 0);
+                        JSON_TYPE_FLOAT:    Result := ternaryOp(obj.B[key], 1.0, 0.0);
+                        JSON_TYPE_BOOL:     Result := obj.B[key];
+                    end;
+                end;
+
+        end;
+    end;
+
+    function indexOfTJsonArrayS(jsonArray: TJsonArray; value: string): integer;
+    var
+        i: integer;
+        valLc: string;
+    begin
+        valLc := LowerCase(value);
+        Result := -1;
+        for i:=0 to jsonArray.count-1 do begin
+            if(jsonArray.Types[i] = JSON_TYPE_STRING) then begin
+                if(LowerCase(jsonArray.S[i]) = valLc) then begin
+                    Result := i;
+                    exit;
+                end;
+            end;
+        end;
+    end;
+
+    function indexOfTJsonArraySubstr(jsonArray: TJsonArray; value: string): integer;
+    var
+        i: integer;
+        valLc, curStr: string;
+    begin
+        valLc := LowerCase(value);
+        Result := -1;
+        for i:=0 to jsonArray.count-1 do begin
+            curStr := LowerCase(jsonArray.S[i]);
+
+            if (pos(valLc, curStr) > 0) then begin
+                Result := i;
+                exit;
+            end;
+        end;
+    end;
+
+    function indexOfTJsonArrayPrefix(jsonArray: TJsonArray; value: string): integer;
+    var
+        i: integer;
+        valLc, curStr: string;
+    begin
+        valLc := LowerCase(value);
+        Result := -1;
+        for i:=0 to jsonArray.count-1 do begin
+            curStr := LowerCase(jsonArray.S[i]);
+
+            if (strStartsWith(curStr, valLc)) then begin
+                Result := i;
+                exit;
+            end;
+        end;
+    end;
+
+    function indexOfTJsonArraySuffix(jsonArray: TJsonArray; value: string): integer;
+    var
+        i: integer;
+        valLc, curStr: string;
+    begin
+        valLc := LowerCase(value);
+        Result := -1;
+        for i:=0 to jsonArray.count-1 do begin
+            curStr := LowerCase(jsonArray.S[i]);
+
+            if (strEndsWith(curStr, valLc)) then begin
+                Result := i;
+                exit;
+            end;
+        end;
+    end;
+
+    function indexOfTJsonArrayI(jsonArray: TJsonArray; value: integer): integer;
+    var
+        i: integer;
+    begin
+        Result := -1;
+        for i:=0 to jsonArray.count-1 do begin
+            if(jsonArray.Types[i] = JSON_TYPE_INT) then begin
+                if(jsonArray.I[i] = value) then begin
+                    Result := i;
+                    exit;
+                end;
+            end;
+        end;
+    end;
+
+    function indexOfTJsonArrayL(jsonArray: TJsonArray; value: integer): integer;
+    var
+        i: integer;
+    begin
+        Result := -1;
+        for i:=0 to jsonArray.count-1 do begin
+            if(jsonArray.Types[i] = JSON_TYPE_LONG) then begin
+                if(jsonArray.L[i] = value) then begin
+                    Result := i;
+                    exit;
+                end;
+            end;
+        end;
+    end;
+
+    function indexOfTJsonArrayU(jsonArray: TJsonArray; value: cardinal): integer;
+    var
+        i: integer;
+    begin
+        Result := -1;
+        for i:=0 to jsonArray.count-1 do begin
+            if(jsonArray.Types[i] = JSON_TYPE_ULONG) then begin
+                if(jsonArray.U[i] = value) then begin
+                    Result := i;
+                    exit;
+                end;
+            end;
+        end;
+    end;
+
+    function indexOfTJsonArrayF(jsonArray: TJsonArray; value: float): integer;
+    var
+        i: integer;
+    begin
+        Result := -1;
+        for i:=0 to jsonArray.count-1 do begin
+            if(jsonArray.Types[i] = JSON_TYPE_FLOAT) then begin
+                if(jsonArray.F[i] = value) then begin
+                    Result := i;
+                    exit;
+                end;
+            end;
+        end;
+    end;
+
+    function indexOfTJsonArrayD(jsonArray: TJsonArray; value: TDateTime): integer;
+    var
+        i: integer;
+    begin
+        Result := -1;
+        for i:=0 to jsonArray.count-1 do begin
+            if(jsonArray.Types[i] = JSON_TYPE_DATETIME) then begin
+                if(jsonArray.D[i] = value) then begin
+                    Result := i;
+                    exit;
+                end;
+            end;
+        end;
+    end;
+
+    function indexOfTJsonArrayB(jsonArray: TJsonArray; value: boolean): integer;
+    var
+        i: integer;
+    begin
+        Result := -1;
+        for i:=0 to jsonArray.count-1 do begin
+            if(jsonArray.Types[i] = JSON_TYPE_BOOL) then begin
+                if(jsonArray.B[i] = value) then begin
+                    Result := i;
+                    exit;
+                end;
+            end;
+        end;
+    end;
+
+    function indexOfTJsonArrayA(jsonArray: TJsonArray; value: TJsonArray): integer;
+    var
+        i: integer;
+        cmpVal: string;
+    begin
+        cmpVal := value.toString();
+        Result := -1;
+        for i:=0 to jsonArray.count-1 do begin
+            if(jsonArray.Types[i] = JSON_TYPE_ARRAY) then begin
+                if(jsonArray.A[i].toString() = cmpVal) then begin
+                    Result := i;
+                    exit;
+                end;
+            end;
+        end;
+    end;
+
+    function indexOfTJsonArrayO(jsonArray: TJsonArray; value: TJsonObject): integer;
+    var
+        i: integer;
+        cmpVal: string;
+    begin
+        cmpVal := value.toString();
+        Result := -1;
+        for i:=0 to jsonArray.count-1 do begin
+            if(jsonArray.Types[i] = JSON_TYPE_OBJECT) then begin
+                if(jsonArray.O[i].toString() = cmpVal) then begin
+                    Result := i;
+                    exit;
+                end;
+            end;
+        end;
+    end;
+
+    procedure mergeJsonArrayUnique(jsonTarget, jsonSource: TJsonArray);
+    var
+        i, curType: integer;
+        newArray: TJsonArray;
+        newObject: TJsonObject;
+    begin
+
+        for i:=0 to jsonSource.count-1 do begin
+            curType := jsonSource.Types[i];
+            case curType of
+                JSON_TYPE_STRING:  // string
+                    begin
+                        if(indexOfTJsonArrayS(jsonTarget, jsonSource.S[i]) < 0) then begin
+                            jsonTarget.add(jsonSource.S[i]);
+                        end;
+                    end;
+                JSON_TYPE_INT: // int
+                    begin
+                        if(indexOfTJsonArrayI(jsonTarget, jsonSource.I[i]) < 0) then begin
+                            jsonTarget.add(jsonSource.I[i]);
+                        end;
+                    end;
+                JSON_TYPE_LONG: // long
+                    begin
+                        if(indexOfTJsonArrayL(jsonTarget, jsonSource.L[i]) < 0) then begin
+                            jsonTarget.add(jsonSource.L[i]);
+                        end;
+                    end;
+                JSON_TYPE_ULONG: // ulong
+                    begin
+                        if(indexOfTJsonArrayU(jsonTarget, jsonSource.U[i]) < 0) then begin
+                            jsonTarget.add(jsonSource.U[i]);
+                        end;
+                    end;
+                JSON_TYPE_FLOAT: // float
+                    begin
+                        if(indexOfTJsonArrayF(jsonTarget, jsonSource.F[i]) < 0) then begin
+                            jsonTarget.add(jsonSource.F[i]);
+                        end;
+                    end;
+                JSON_TYPE_DATETIME: // datetime
+                    begin
+                        if(indexOfTJsonArrayD(jsonTarget, jsonSource.D[i]) < 0) then begin
+                            jsonTarget.add(jsonSource.D[i]);
+                        end;
+                    end;
+                JSON_TYPE_BOOL: // bool
+                    begin
+                        if(indexOfTJsonArrayB(jsonTarget, jsonSource.B[i]) < 0) then begin
+                            jsonTarget.add(jsonSource.B[i]);
+                        end;
+                    end;
+                JSON_TYPE_ARRAY: // array
+                    begin
+                        if(indexOfTJsonArrayA(jsonTarget, jsonSource.A[i]) < 0) then begin
+                            // append source[i] as new array
+                            newArray := jsonTarget.addArray();
+                            mergeJsonArray(newArray, jsonSource.A[i]);
+                        end;
+                    end;
+                JSON_TYPE_OBJECT: // object
+                    begin
+                        if(indexOfTJsonArrayO(jsonTarget, jsonSource.O[i]) < 0) then begin
+                            // append source[i] as new object
+                            newObject := jsonTarget.addObject();
+                            mergeJsonObject(newObject, jsonSource.O[i]);
+                        end;
+                    end;
+            end;
+        end;
+    end;
+
+    procedure mergeJsonArray(jsonTarget, jsonSource: TJsonArray);
+    var
+        i, curType: integer;
+        newArray: TJsonArray;
+        newObject: TJsonObject;
+    begin
+        for i:=0 to jsonSource.count-1 do begin
+            curType := jsonSource.Types[i];
+            addValueToArray(jsonTarget, getJsonArrayValueVariant(jsonSource, i, ''), curType);
+        end;
+    end;
+
+    function cloneJsonObject(orig: TJsonObject): TJsonObject;
+    begin
+        Result := TJsonObject.create();
+        Result.assign(orig);
+    end;
+
+    function cloneJsonArray(orig: TJsonArray): TJsonArray;
+    begin
+        Result := TJsonArray.create();
+        Result.assign(orig);
+    end;
+
+    procedure prependConcatJsonArrays(jsonTarget, jsonSource: TJsonArray);
+    var
+        arrayBak: TJsonArray;
+    begin
+        arrayBak := cloneJsonArray(jsonTarget);
+        jsonTarget.clear();
+
+        concatJsonArrays(jsonTarget, jsonSource);
+        concatJsonArrays(jsonTarget, arrayBak);
+
+        arrayBak.free();
+    end;
+
+    procedure concatJsonArrays(jsonTarget, jsonSource: TJsonArray);
+    var
+        i, curType: integer;
+        newArray: TJsonArray;
+        newObject: TJsonObject;
+    begin
+        for i:=0 to jsonSource.count-1 do begin
+            curType := jsonSource.Types[i];
+            case curType of
+                JSON_TYPE_STRING:   jsonTarget.add(jsonSource.S[i]);
+                JSON_TYPE_INT:      jsonTarget.add(jsonSource.I[i]);
+                JSON_TYPE_LONG:     jsonTarget.add(jsonSource.L[i]);
+                JSON_TYPE_ULONG:    jsonTarget.add(jsonSource.U[i]);
+                JSON_TYPE_FLOAT:    jsonTarget.add(jsonSource.F[i]);
+                JSON_TYPE_DATETIME: jsonTarget.add(jsonSource.D[i]);
+                JSON_TYPE_BOOL:     jsonTarget.add(jsonSource.B[i]);
+                JSON_TYPE_ARRAY: // array
+                    begin
+                        // append source[i] as new array
+                        newArray := jsonTarget.addArray();
+                        mergeJsonArray(newArray, jsonSource.A[i]);
+                    end;
+                JSON_TYPE_OBJECT: // object
+                    begin
+                        // append source[i] as new object
+                        newObject := jsonTarget.addObject();
+                        mergeJsonObject(newObject, jsonSource.O[i]);
+                    end;
+            end;
+
+        end;
+    end;
+
+    procedure mergeJsonObject(jsonTarget, jsonSource: TJsonObject);
+    var
+        i, curType: integer;
+        key: string;
+    begin
+        for i:=0 to jsonSource.count-1 do begin
+            key := jsonSource.names[i];
+            curType := jsonSource.Types[key];
+
+            case curType of
+                JSON_TYPE_STRING:  // string
+                    begin
+                        jsonTarget.S[key] := jsonSource.S[key];
+                    end;
+                JSON_TYPE_INT: // int
+                    begin
+                        jsonTarget.I[key] := jsonSource.I[key];
+                    end;
+                JSON_TYPE_LONG: // long
+                    begin
+                        jsonTarget.L[key] := jsonSource.L[key];
+                    end;
+                JSON_TYPE_ULONG: // ulong
+                    begin
+                        jsonTarget.U[key] := jsonSource.U[key];
+                    end;
+                JSON_TYPE_FLOAT: // float
+                    begin
+                        jsonTarget.F[key] := jsonSource.F[key];
+                    end;
+                JSON_TYPE_DATETIME: // datetime
+                    begin
+                        jsonTarget.D[key] := jsonSource.D[key];
+                    end;
+                JSON_TYPE_BOOL: // bool
+                    begin
+                        jsonTarget.B[key] := jsonSource.B[key];
+                    end;
+                JSON_TYPE_ARRAY: // array
+                    begin
+                        mergeJsonArray(jsonTarget.A[key], jsonSource.A[key]);
+                    end;
+                JSON_TYPE_OBJECT: // object
+                    begin
+                        mergeJsonObject(jsonTarget.O[key], jsonSource.O[key]);
+                    end;
+            end;
+        end;
+    end;
+
+    procedure prependStringToArray(arr: TJsonArray; s: string);
+    var
+        arrBackup: TJsonArray;
+        newObj: TJsonObject;
+    begin
+        arrBackup := cloneJsonArray(arr);
+        arr.clear();
+
+        arr.add(s);
+
+        concatJsonArrays(arr, arrBackup);
+        arrBackup.free();
+    end;
+
+    procedure prependObjectToArray(arr: TJsonArray; obj: TJsonObject);
+    var
+        arrBackup: TJsonArray;
+        newObj: TJsonObject;
+    begin
+        arrBackup := cloneJsonArray(arr);
+        arr.clear();
+
+        newObj := arr.addObject();
+        mergeJsonObject(newObj, obj);
+
+        concatJsonArrays(arr, arrBackup);
+        arrBackup.free();
+    end;
+
+    procedure appendObjectToArray(arr: TJsonArray; obj: TJsonObject);
+    var
+        newObj : TJsonObject;
+    begin
+        newObj := arr.addObject();
+        mergeJsonObject(newObj, obj);
+    end;
+
+    procedure insertObjectIntoArray(arr: TJsonArray; obj: TJsonObject; index: integer);
+    var
+        i: integer;
+        curObj, nextObj: TJsonObject;
+    begin
+        if(index = arr.count) then begin
+            appendObjectToArray(arr, obj);
+            exit;
+        end;
+
+        if(index = 0) then begin
+            prependObjectToArray(arr, obj);
+            exit;
+        end;
+
+        if(index > arr.count) then begin
+            for i:=0 to index do begin
+                curObj := arr.addObject();
+            end;
+            mergeJsonObject(curObj, obj);
+            exit;
+        end;
+
+        // move everything by one forward
+        arr.addObject();
+        for i:=arr.count-1 downto index+1 do begin
+            nextObj := arr.O[i];
+            curObj := arr.O[i-1];
+
+            mergeJsonObject(nextObj, curObj);
+            curObj.clear();
+        end;
+
+        curObj := arr.O[index];
+        mergeJsonObject(curObj, obj);
+    end;
+
+    procedure appendArrayToArray(arr1: TJsonArray; arr2: TJsonArray);
+    var
+        newArr : TJsonArray;
+    begin
+        newArr := arr1.addArray();
+        mergeJsonArray(newArr, arr2);
+    end;
+
+    procedure prependArrayToArray(arr: TJsonArray; obj: TJsonObject);
+    var
+        arrBackup: TJsonArray;
+        newArr: TJsonObject;
+    begin
+        arrBackup := cloneJsonArray(arr);
+        arr.clear();
+
+        newArr := arr.addArray();
+        mergeJsonArray(newArr, obj);
+
+        concatJsonArrays(arr, arrBackup);
+        arrBackup.free();
+    end;
+
+    procedure appendValueToArray(arr: TJsonArray; value: variant; valueType: integer);
+    begin
+        case valueType of
+            JSON_TYPE_ARRAY:    appendArrayToArray(arr, value);
+            JSON_TYPE_OBJECT:   appendObjectToArray(arr, value);
+            else                arr.add(value);
+        end;
+    end;
+
+    procedure prependValueToArray(arr: TJsonArray; value: variant; valueType: integer);
+    var
+        arrBackup: TJsonArray;
+    begin
+        case valueType of
+            JSON_TYPE_ARRAY:    prependArrayToArray(arr, value);
+            JSON_TYPE_OBJECT:   prependObjectToArray(arr, value);
+            else
+                begin
+                    arrBackup := cloneJsonArray(arr);
+                    arr.clear();
+
+                    arr.add(value);
+
+                    concatJsonArrays(arr, arrBackup);
+                    arrBackup.free();
+                end;
+        end;
+    end;
+
+    procedure addValueToArray(jsonTarget: TJsonArray; value: variant; valueType: integer);
+    var
+        newArray: TJsonArray;
+        newObject: TJsonObject;
+    begin
+
+        if(indexOfTJsonArrayVariant(jsonTarget, value, valueType) < 0) then begin
+            appendValueToArray(jsonTarget, value, valueType);
+        end;
+    end;
+
+    procedure setArrayValue(target: TJsonArray; index: integer; value: variant; valueType: integer);
+    begin
+        case valueType of
+            JSON_TYPE_STRING:  // string
+                target.S[index] := value;
+            JSON_TYPE_INT: // int
+                target.I[index] := value;
+            JSON_TYPE_LONG: // long
+                target.L[index] := value;
+            JSON_TYPE_ULONG: // ulong
+                target.U[index] := value;
+            JSON_TYPE_FLOAT: // float
+                target.F[index] := value;
+            JSON_TYPE_DATETIME: // datetime
+                target.D[index] := value;
+            JSON_TYPE_BOOL: // bool
+                target.B[index] := value;
+            JSON_TYPE_ARRAY: // array
+                target.A[index] := cloneJsonArray(value);
+            JSON_TYPE_OBJECT: // object
+                target.O[index] := cloneJsonObject(value);
+        end;
+    end;
+
+    procedure setObjectValue(target: TJsonObject; key: string; value: variant; valueType: integer);
+    begin
+        case valueType of
+            JSON_TYPE_STRING:  // string
+                target.S[key] := value;
+            JSON_TYPE_INT: // int
+                target.I[key] := value;
+            JSON_TYPE_LONG: // long
+                target.L[key] := value;
+            JSON_TYPE_ULONG: // ulong
+                target.U[key] := value;
+            JSON_TYPE_FLOAT: // float
+                target.F[key] := value;
+            JSON_TYPE_DATETIME: // datetime
+                target.D[key] := value;
+            JSON_TYPE_BOOL: // bool
+                target.B[key] := value;
+            JSON_TYPE_ARRAY: // array
+                target.A[key] := cloneJsonArray(value);
+            JSON_TYPE_OBJECT: // object
+                target.O[key] := cloneJsonObject(value);
+        end;
+    end;
+
+    function indexOfTJsonArrayVariant(jsonTarget: TJsonArray; value: variant; valueType: integer): integer;
+    var
+        newArray: TJsonArray;
+        newObject: TJsonObject;
+    begin
+        Result := -1;
+        case valueType of
+            JSON_TYPE_STRING:  // string
+                Result := indexOfTJsonArrayS(jsonTarget, value);
+            JSON_TYPE_INT: // int
+                Result := indexOfTJsonArrayI(jsonTarget, value);
+            JSON_TYPE_LONG: // long
+                Result := indexOfTJsonArrayL(jsonTarget, value);
+            JSON_TYPE_ULONG: // ulong
+                Result := indexOfTJsonArrayU(jsonTarget, value);
+            JSON_TYPE_FLOAT: // float
+                Result := indexOfTJsonArrayF(jsonTarget, value);
+            JSON_TYPE_DATETIME: // datetime
+                Result := indexOfTJsonArrayD(jsonTarget, value);
+            JSON_TYPE_BOOL: // bool
+                Result := indexOfTJsonArrayB(jsonTarget, value);
+            JSON_TYPE_ARRAY: // array
+                Result := indexOfTJsonArrayA(jsonTarget, value);
+            JSON_TYPE_OBJECT: // object
+                Result := indexOfTJsonArrayO(jsonTarget, value);
+        end;
+    end;
+
+    // === debug functions ===
     {
         Produces a formatted output of the given element, prepends the prefix to each line
     }
