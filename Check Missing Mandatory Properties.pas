@@ -1,24 +1,40 @@
 {
-    Run on any amount of forms.
-    It will display missing mandatory properties.
-    For forms, it will also attempt to auto-fill them, by looking up a form with the same EDID as the property's name and form type.
-    Isn't able to auto-fill custom script types yet.
+    Run on any amount of forms. A config UI will be shown before processing.
+    Missing mandatory properties will be output to Messages.
 
-    Also, alias auto-filling doesn't work yet, either.
+    There is limited support for auto-filling. This will still generate output.
+    It should be able to auto-fill properties, if the property type corresponds to a native form type, but won't work for scripts which extend such a type yet.
+    For example, it should be able to autofill
+        `MiscObject property BobbyPin auto const mandatory`
+    because there is a misc item with the editor ID 'BobbyPin', but it will fail for
+        `MyScript property MyExtendedMisc auto const mandatory`
+    even if MyScript extends MiscObject, and there is a misc item with the editor ID 'MyExtendedMisc' with the script 'MyScript'.
+    
+    
+    Explanation of the settings in the config UI:
+        - Progress Message After: 
+            After this number of forms have been checked, a message will be generated.
+        - Auto-Fill Mandatory:
+            Whenever auto-fill should be attempted, if a missing Mandatory property is found.
+        - Auto-Fill Optional:
+            Whenever auto-fill should be attempted, if a missing Optional property is found.
+        - Auto-Fill Basic Types:
+            If enabled, auto-fill will be attempted for properties of type ScriptObject and Form, too. 
+            In this case, no type checking is done. If the Editor ID matches, it will be filled.
+            This option is irrelevant if both Auto-Fill Mandatory and Auto-Fill Optional are disabled.
+        - Skip some SS2 forms:
+            SS2 contains some templates where mandatory properties aren't filled on purpose, as well
+            as "recycled MISCs", which have a script, but no properties. 
+            If they aren't skipped and the script is used on SS2, it will generate lots of false positives.
+            However, `shouldProcess` might be a bit too loose, since it will skip everything with "template" in the EditorID.
 
-    Change the constants below as a "config"
+
 }
 unit CheckMissingMandatoryProps;
     uses PexToJson;
     uses praUtil;
 
     const
-        // todo make a GUI to configure these. and a config file
-        progressMessageAfter = 1000;
-        skipSomeSS2Forms = true;    // skips some templates, recycled miscs, etc
-        autoFillMandatory = true;   // attempt to auto-fill mandatory properties
-        autoFillOptional = true;    // attempt to auto-fill optional properties
-        autoFillBasicTypes = false; // whenever to try to auto-fill properties of type Form or ScriptObject. No typechecking happens here, any form is fair game.
 
         SCRIPT_TYPE_INVALID = -1; // not anything known
         SCRIPT_TYPE_INTERNAL = 0; // stuff which shouldn't be extended or such
@@ -27,16 +43,156 @@ unit CheckMissingMandatoryProps;
         SCRIPT_TYPE_REF = 3;      // any ObjectReference, REFR, ACHR, PGRE
         SCRIPT_TYPE_ALIAS = 4;    // any alias from a quest
 
+        configFile = ProgramPath + 'Edit Scripts\Check Missing Mandatory Properties.cfg';
+
     var
         scriptCache, decompilerCache: TJsonObject;
         processedForms, decompiledScripts, foundErrors: cardinal;
         edidCache: TStringList;
+
+        progressMessageAfter: integer;
+        skipSomeSS2Forms: boolean;    // skips some templates, recycled miscs, etc
+        autoFillMandatory: boolean;   // attempt to auto-fill mandatory properties
+        autoFillOptional: boolean;    // attempt to auto-fill optional properties
+        autoFillBasicTypes: boolean; // whenever to try to auto-fill properties of type Form or ScriptObject. No typechecking happens here, any form is fair game.
+
+    procedure loadConfig();
+    var
+        i, j, breakPos: integer;
+        curLine, curKey, curVal: string;
+        lines : TStringList;
+    begin
+        // defaults
+        progressMessageAfter := 1000;
+        skipSomeSS2Forms := true;    // skips some templates, recycled miscs, etc
+        autoFillMandatory := true;   // attempt to auto-fill mandatory properties
+        autoFillOptional := true;    // attempt to auto-fill optional properties
+        autoFillBasicTypes := false; // whenever to try to auto-fill properties of type Form or ScriptObject. No typechecking happens here, any form is fair game.
+
+        if(not FileExists(configFile)) then begin
+            exit;
+        end;
+        lines := TStringList.create;
+        lines.LoadFromFile(configFile);
+
+        //
+        for i:=0 to lines.count-1 do begin
+            curLine := lines[i];
+            breakPos := -1;
+
+            for j:=1 to length(curLine) do begin
+                if(curLine[j] = '=') then begin
+                    breakPos := j;
+                    break;
+                end;
+            end;
+
+            if breakPos <> -1 then begin
+                curKey := trim(copy(curLine, 0, breakPos-1));
+                curVal := trim(copy(curLine, breakPos+1, length(curLine)));
+
+                if(curKey = 'progressMessageAfter') then begin
+                    progressMessageAfter := StrToInt(curVal);
+                end else if(curKey = 'skipSomeSS2Forms') then begin
+                    skipSomeSS2Forms := StrToBool(curVal);
+                end else if(curKey = 'autoFillMandatory') then begin
+                    autoFillMandatory := StrToBool(curVal);
+                end else if(curKey = 'autoFillOptional') then begin
+                    autoFillOptional := StrToBool(curVal);
+                end else if(curKey = 'autoFillBasicTypes') then begin
+                    autoFillBasicTypes := StrToBool(curVal);
+                end;
+            end;
+        end;
+
+        lines.free();
+    end;
+
+    procedure saveConfig();
+    var
+        lines : TStringList;
+    begin
+        lines := TStringList.create;
+
+        lines.add('progressMessageAfter='+IntToStr(progressMessageAfter));
+        lines.add('skipSomeSS2Forms='+BoolToStr(skipSomeSS2Forms));
+        lines.add('autoFillMandatory='+BoolToStr(autoFillMandatory));
+        lines.add('autoFillOptional='+BoolToStr(autoFillOptional));
+        lines.add('autoFillBasicTypes='+BoolToStr(autoFillBasicTypes));
+
+        lines.saveToFile(configFile);
+        lines.free();
+    end;
+
+    function showGui(): boolean;
+    var
+        frm: TForm;
+        eProgressAfter: TEdit;
+        resultCode: cardinal;
+        yOffset: integer;
+        cbSkipForms, cbAutoFillMandatory, cbAutoFillOptional, cbAutoFillBasic: TCheckBox;
+
+        btnOkay, btnCancel: TButton;
+    begin
+        frm := CreateDialog('Check Missing Mandatory Properties', 400, 200);
+
+        eProgressAfter := CreateLabelledInput(frm, 20, 24, 100, 24, 'Progress Message After:', IntToStr(progressMessageAfter));
+
+        //eProgressAfter.LabelPosition := lpLeft;
+        // CreateLabel(frm, 10, 34, 'A progress message will be generated after this many forms were processed.');
+
+        yOffset := 54;
+        cbAutoFillMandatory := CreateCheckbox(frm, 20, yOffset, 'Auto-Fill Mandatory');
+        cbAutoFillOptional := CreateCheckbox(frm, 210, yOffset, 'Auto-Fill Optional');
+
+        yOffset := yOffset + 24;
+        cbAutoFillBasic := CreateCheckbox(frm, 20, yOffset, 'Auto-Fill Basic Types');
+        cbSkipForms := CreateCheckbox(frm, 210, yOffset, 'Skip some SS2 forms');
+
+        cbSkipForms.checked := skipSomeSS2Forms;
+        cbAutoFillMandatory.checked := autoFillMandatory;
+        cbAutoFillOptional.checked := autoFillOptional;
+        cbAutoFillBasic.checked := autoFillBasicTypes;
+        yOffset := yOffset + 34;
+
+        btnOkay := CreateButton(frm, 100, yOffset, 'OK');
+        btnOkay.ModalResult := mrYes;
+        btnOkay.width := 75;
+
+        btnCancel := CreateButton(frm, 200, yOffset, 'Cancel');
+        btnCancel.ModalResult := mrCancel;
+        btnCancel.width := 75;
+
+        resultCode := frm.ShowModal;
+        if(resultCode <> mrYes) then begin
+            Result := false;
+            frm.free();
+            exit;
+        end;
+
+        progressMessageAfter := StrToInt(trim(eProgressAfter.text));
+
+        skipSomeSS2Forms := cbSkipForms.checked;
+        autoFillMandatory := cbAutoFillMandatory.checked;
+        autoFillOptional := cbAutoFillOptional.checked;
+        autoFillBasicTypes := cbAutoFillBasic.checked;
+
+        saveConfig();
+        Result := true;
+        frm.free();
+    end;
 
     // Called before processing
     // You can remove it if script doesn't require initialization code
     function Initialize: integer;
     begin
         Result := 0;
+        loadConfig();
+        if(not showGui()) then begin
+            Result := 1;
+            exit;
+        end;
+
         decompilerCache := TJsonObject.create();
         scriptCache := TJsonObject.create();
         AddMessage('Script begins.');

@@ -1,7 +1,7 @@
 {
     Some useful functions.
 
-    Version 2023-09-18
+    Version 2023-09-18.1
 }
 unit PraUtil;
 
@@ -219,7 +219,7 @@ unit PraUtil;
             end;
         end;
     end;
-    
+
     {
         Gets an object by editor ID from the given file and any group.
     }
@@ -245,7 +245,7 @@ unit PraUtil;
             end;
         end;
     end;
-    
+
     {
         Gets an object by editor ID from any currently loaded file and any group.
         This is not a performant function.
@@ -274,7 +274,7 @@ unit PraUtil;
             end;
         end;
     end;
-    
+
     {
         Gets an object by editor ID and signature from the given file and any group.
     }
@@ -386,7 +386,7 @@ unit PraUtil;
     begin
         Result := FindObjectByEdid(edid);
     end;
-    
+
     function findInteriorCellByEdid(edid: string): IInterface;
     var
         iFiles: integer;
@@ -1789,7 +1789,7 @@ unit PraUtil;
 			Result := Result + str;
 		end;
 	end;
-    
+
     function StringReverse(s: string): string;
     var
         i, len: integer;
@@ -1960,7 +1960,7 @@ unit PraUtil;
             end;
         end;
     end;
-    
+
     {
         Returns the fragment script of the given form, if it has any
     }
@@ -3159,6 +3159,19 @@ unit PraUtil;
         Result.Text := escapeString(text);
     end;
 
+    function CreateLabelledInput(frm: TForm; left, top, width, height: Integer; caption, text: String): TLabeledEdit;
+    begin
+        Result := TLabeledEdit.Create(frm);
+        Result.Parent := frm;
+
+        Result.Left := left;
+        Result.Top := top;
+        Result.Width := width;
+        Result.LabelPosition := lpAbove;
+        Result.EditLabel.Caption := caption;
+        Result.Text := text;
+    end;
+
     function CreateGroup(frm: TForm; left: Integer; top: Integer; width: Integer; height: Integer; caption: String): TGroupBox;
     begin
         Result := TGroupBox.Create(frm);
@@ -3229,14 +3242,14 @@ unit PraUtil;
             frm.free();
             exit;
         end;
-        
+
         if(prependNewFileEntry and targetFileBox.ItemIndex = 0) then begin
             Result := AddNewFile();
         end else begin
             newFileName := targetFileBox.Items[targetFileBox.ItemIndex];
             Result := FindFile(newFileName);
         end;
-        
+
         frm.free();
     end;
 
@@ -3269,7 +3282,7 @@ unit PraUtil;
 
             curFileName := GetFileName(curFile);
             if(not isEditable(curFile)) then begin
-                continue;                
+                continue;
             end;
 
             fileIndex := Result.Items.Add(curFileName);
@@ -3451,7 +3464,7 @@ unit PraUtil;
             objFile.free;
         end;
     end;
-    
+
     // === JSON FUNCTIONS ===
     // merged in from an old defunct JSON library, for an old defunct project
     function jsonTypeToString(t: integer): string;
