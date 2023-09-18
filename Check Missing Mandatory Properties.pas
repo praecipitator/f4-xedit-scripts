@@ -1,21 +1,31 @@
 {
-    Run on any amount of forms. 
+    Run on any amount of forms.
     It will display missing mandatory properties.
-    For forms, it will also attempt to auto-fill them, by looking up a form with the same name as the property.
-    No type checking is done on the form before setting it yet, however.
-    
+    For forms, it will also attempt to auto-fill them, by looking up a form with the same EDID as the property's name and form type.
+    Isn't able to auto-fill custom script types yet.
+
     Also, alias auto-filling doesn't work yet, either.
-    
-    set autoFill to false below to disable autofilling. Maybe I'll make a GUI eventually.
+
+    Change the constants below as a "config"
 }
 unit CheckMissingMandatoryProps;
     uses PexToJson;
     uses praUtil;
 
     const
+        // todo make a GUI to configure these. and a config file
         progressMessageAfter = 1000;
-        skipSomeSS2Forms = true;
-        autoFill = true;
+        skipSomeSS2Forms = true;    // skips some templates, recycled miscs, etc
+        autoFillMandatory = true;   // attempt to auto-fill mandatory properties
+        autoFillOptional = true;    // attempt to auto-fill optional properties
+        autoFillBasicTypes = false; // whenever to try to auto-fill properties of type Form or ScriptObject. No typechecking happens here, any form is fair game.
+
+        SCRIPT_TYPE_INVALID = -1; // not anything known
+        SCRIPT_TYPE_INTERNAL = 0; // stuff which shouldn't be extended or such
+        SCRIPT_TYPE_BASE = 1;     // Form and ScriptObject
+        SCRIPT_TYPE_RECORD = 2;   // base forms, like Actor or Keyword or Static
+        SCRIPT_TYPE_REF = 3;      // any ObjectReference, REFR, ACHR, PGRE
+        SCRIPT_TYPE_ALIAS = 4;    // any alias from a quest
 
     var
         scriptCache, decompilerCache: TJsonObject;
@@ -108,6 +118,40 @@ unit CheckMissingMandatoryProps;
         end;
     end;
 
+    procedure fillScriptProperties(curScript: IInterface; outList: TJsonObject);
+    var
+        scripts, propRoot, prop, rawPropVal, propObj: IInterface;
+        i, j: integer;
+        scriptName, scriptNameLc, propName, propType: string;
+        scriptObj: TJsonObject;
+        propArray: TJsonArray;
+    begin
+        scriptName := geevt(curScript, 'scriptName');
+        scriptNameLc := LowerCase(scriptName);
+
+        propRoot := ElementByPath(curScript, 'Properties');
+
+        scriptObj := outList.O[scriptNameLc];
+        scriptObj.S['name'] := scriptName;
+
+        if(assigned(propRoot)) then begin
+
+            for j := 0 to ElementCount(propRoot)-1 do begin
+                prop := ElementByIndex(propRoot, j);
+                propName := geevt(prop, 'propertyName');
+                propType := geevt(prop, 'Type');
+
+                propObj := scriptObj.O['properties'].O[LowerCase(propName)]; //outList.O['properties'].O[LowerCase(propName)];
+
+                propObj.S['name'] := propName;
+                propObj.S['type'] := propType;
+
+                rawPropVal := getRawScriptProp(curScript, propName);
+                fillScriptValue(propType, prop, rawPropVal, propObj);
+            end;
+        end;
+    end;
+
     procedure getScriptProperties(e: IInterface; outList: TJsonObject);
     var
         curScript, scripts, propRoot, prop, rawPropVal, propObj: IInterface;
@@ -117,39 +161,18 @@ unit CheckMissingMandatoryProps;
         propArray: TJsonArray;
     begin
         scripts := ElementByPath(e, 'VMAD - Virtual Machine Adapter\Scripts');
-        if(not assigned(scripts)) then exit;
+        if(assigned(scripts)) then begin
 
-        // processing code goes here
-        for i := 0 to ElementCount(scripts)-1 do begin
-            curScript := ElementByIndex(scripts, i);
-            scriptName := geevt(curScript, 'scriptName');
-            scriptNameLc := LowerCase(scriptName);
-
-            propRoot := ElementByPath(curScript, 'Properties');
-
-            scriptObj := outList.O[scriptNameLc];
-            scriptObj.S['name'] := scriptName;
-
-            if(assigned(propRoot)) then begin
-
-                // propArray := scriptObj.A['properties'];
-
-
-                for i := 0 to ElementCount(propRoot)-1 do begin
-                    prop := ElementByIndex(propRoot, i);
-                    propName := geevt(prop, 'propertyName');
-                    propType := geevt(prop, 'Type');
-
-                    propObj := scriptObj.O['properties'].O[LowerCase(propName)]; //outList.O['properties'].O[LowerCase(propName)];
-
-                    propObj.S['name'] := propName;
-                    propObj.S['type'] := propType;
-
-                    rawPropVal := getRawScriptProp(curScript, propName);
-                    fillScriptValue(propType, prop, rawPropVal, propObj);
-                end;
+            // processing code goes here
+            for i := 0 to ElementCount(scripts)-1 do begin
+                curScript := ElementByIndex(scripts, i);
+                fillScriptProperties(curScript, outList);
             end;
+        end;
 
+        curScript := getFragmentScript(e);
+        if(assigned(curScript)) then begin
+            fillScriptProperties(curScript, outList);
         end;
     end;
 
@@ -197,7 +220,7 @@ unit CheckMissingMandatoryProps;
         done: boolean;
     begin
         scriptKey := LowerCase(scriptName);
-        
+
         if(decompilerCache.Types[scriptKey] = JSON_TYPE_OBJECT) then begin
             Result := decompilerCache.O[scriptKey];
             exit;
@@ -218,6 +241,490 @@ unit CheckMissingMandatoryProps;
         end;
     end;
 
+    {
+        Returns types:
+
+        SCRIPT_TYPE_INVALID = -1 // not anything known
+        SCRIPT_TYPE_INTERNAL = 0 // stuff which shouldn't be extended or unused stuff
+        SCRIPT_TYPE_BASE = 1 // Form and ScriptObject
+        SCRIPT_TYPE_RECORD = 2 // base forms, like Actor or Keyword or Static
+        SCRIPT_TYPE_REF = 3 // any ObjectReference, REFR, ACHR, PGRE(?)
+        SCRIPT_TYPE_ALIAS = 4 // any alias from a quest
+    }
+    function getFormScriptType(scriptName: string): integer;
+    var
+        scriptNameLC: string;
+    begin
+        Result := SCRIPT_TYPE_INVALID;
+        scriptNameLC := LowerCase(scriptName);
+
+            // lets  put the unused ones here, too
+        if
+            (scriptNameLC = 'debug') or
+            (scriptNameLC = 'f4se') or
+            (scriptNameLC = 'game') or
+            (scriptNameLC = 'input') or
+            (scriptNameLC = 'inputenablelayer') or
+            (scriptNameLC = 'instancedata') or
+            (scriptNameLC = 'math') or
+            (scriptNameLC = 'ui') or
+            (scriptNameLC = 'utility') or
+            (scriptNameLC = 'shout') or
+            (scriptNameLC = 'wordofpower') or
+            (scriptNameLC = 'leveledspell') or
+            (scriptNameLC = 'scroll') or
+            (scriptNameLC = 'soulgem')
+        then begin
+            Result := SCRIPT_TYPE_INTERNAL;
+            exit;
+        end;
+
+        if
+            (scriptNameLC = 'scriptobject') or
+            (scriptNameLC = 'form')
+        then begin
+            Result := SCRIPT_TYPE_BASE;
+            exit;
+        end;
+
+
+        if
+            (scriptNameLC = 'objectreference') or
+            (scriptNameLC = 'actor')
+        then begin
+            Result := SCRIPT_TYPE_REF;
+            exit;
+        end;
+
+
+        if
+            (scriptNameLC = 'alias') or
+            (scriptNameLC = 'referencealias') or
+            (scriptNameLC = 'locationalias') or
+            (scriptNameLC = 'refcollectionalias')
+        then begin
+            Result := SCRIPT_TYPE_REF;
+            exit;
+        end;
+
+        if
+            (scriptNameLC = 'activemagiceffect') or
+            (scriptNameLC = 'action') or
+            (scriptNameLC = 'activator') or
+            (scriptNameLC = 'flora') or
+            (scriptNameLC = 'furniture') or
+            (scriptNameLC = 'talkingactivator') or
+            (scriptNameLC = 'actorbase') or
+            (scriptNameLC = 'actorvalue') or
+            (scriptNameLC = 'ammo') or
+            (scriptNameLC = 'armor') or
+            (scriptNameLC = 'associationtype') or
+            (scriptNameLC = 'book') or
+            (scriptNameLC = 'camerashot') or
+            (scriptNameLC = 'cell') or
+            (scriptNameLC = 'class') or
+            (scriptNameLC = 'combatstyle') or
+            (scriptNameLC = 'component') or
+            (scriptNameLC = 'container') or
+            (scriptNameLC = 'door') or
+            (scriptNameLC = 'defaultobject') or
+            (scriptNameLC = 'effectshader') or
+            (scriptNameLC = 'enchantment') or
+            (scriptNameLC = 'encounterzone') or
+            (scriptNameLC = 'equipslot') or
+            (scriptNameLC = 'explosion') or
+            (scriptNameLC = 'faction') or
+            (scriptNameLC = 'formlist') or
+            (scriptNameLC = 'globalvariable') or
+            (scriptNameLC = 'hazard') or
+            (scriptNameLC = 'headpart') or
+            (scriptNameLC = 'holotape') or
+            (scriptNameLC = 'idle') or
+            (scriptNameLC = 'idlemarker') or
+            (scriptNameLC = 'imagespacemodifier') or
+            (scriptNameLC = 'impactdataset') or
+            (scriptNameLC = 'ingredient') or
+            (scriptNameLC = 'instancenamingrules') or
+            (scriptNameLC = 'keyword') or
+            (scriptNameLC = 'locationreftype') or
+            (scriptNameLC = 'leveledactor') or
+            (scriptNameLC = 'leveleditem') or
+            (scriptNameLC = 'leveledspell') or
+            (scriptNameLC = 'light') or
+            (scriptNameLC = 'location') or
+            (scriptNameLC = 'magiceffect') or
+            (scriptNameLC = 'message') or
+            (scriptNameLC = 'miscobject') or
+            (scriptNameLC = 'constructibleobject') or
+            (scriptNameLC = 'key') or
+            (scriptNameLC = 'soulgem') or
+            (scriptNameLC = 'musictype') or
+            (scriptNameLC = 'objectmod') or
+            (scriptNameLC = 'outfit') or
+            (scriptNameLC = 'outputmodel') or
+            (scriptNameLC = 'package') or
+            (scriptNameLC = 'perk') or
+            (scriptNameLC = 'potion') or
+            (scriptNameLC = 'projectile') or
+            (scriptNameLC = 'quest') or
+            (scriptNameLC = 'race') or
+            (scriptNameLC = 'scene') or
+            (scriptNameLC = 'scroll') or
+            (scriptNameLC = 'shaderparticlegeometry') or
+            (scriptNameLC = 'shout') or
+            (scriptNameLC = 'sound') or
+            (scriptNameLC = 'soundcategory') or
+            (scriptNameLC = 'soundcategorysnapshot') or
+            (scriptNameLC = 'spell') or
+            (scriptNameLC = 'static') or
+            (scriptNameLC = 'movablestatic') or
+            (scriptNameLC = 'terminal') or
+            (scriptNameLC = 'textureset') or
+            (scriptNameLC = 'topic') or
+            (scriptNameLC = 'topicinfo') or
+            (scriptNameLC = 'visualeffect') or
+            (scriptNameLC = 'voicetype') or
+            (scriptNameLC = 'watertype') or
+            (scriptNameLC = 'weapon') or
+            (scriptNameLC = 'weather') or
+            (scriptNameLC = 'wordofpower') or
+            (scriptNameLC = 'worldspace') then
+        begin
+            Result := SCRIPT_TYPE_RECORD;
+            exit;
+        end;
+    end;
+
+    function scriptNameToSignature(scriptName: string): string;
+    var
+        scriptNameLC: string;
+    begin
+        Result := '';
+        scriptNameLC := LowerCase(scriptName);
+
+        if(scriptNameLC = 'objectreference') then begin
+            Result := 'REFR';
+            exit;
+        end;
+        if(scriptNameLC = 'actor') then begin
+            Result := 'ACHR';
+            exit;
+        end;
+        if(scriptNameLC = 'action') then begin
+            Result := 'AACT';
+            exit;
+        end;
+        if(scriptNameLC = 'activator') then begin
+            Result := 'ACTI';
+            exit;
+        end;
+        if(scriptNameLC = 'flora') then begin
+            Result := 'FLOR';
+            exit;
+        end;
+        if(scriptNameLC = 'furniture') then begin
+            Result := 'FURN';
+            exit;
+        end;
+        if(scriptNameLC = 'talkingactivator') then begin
+            Result := 'TACT';
+            exit;
+        end;
+        if(scriptNameLC = 'actorbase') then begin
+            Result := 'NPC_';
+            exit;
+        end;
+        if(scriptNameLC = 'actorvalue') then begin
+            Result := 'AVIF';
+            exit;
+        end;
+        if(scriptNameLC = 'ammo') then begin
+            Result := 'AMMO';
+            exit;
+        end;
+        if(scriptNameLC = 'armor') then begin
+            Result := 'ARMO';
+            exit;
+        end;
+        if(scriptNameLC = 'associationtype') then begin
+            Result := 'ASTP';
+            exit;
+        end;
+        if(scriptNameLC = 'book') then begin
+            Result := 'BOOK';
+            exit;
+        end;
+        if(scriptNameLC = 'camerashot') then begin
+            Result := 'CAMS';
+            exit;
+        end;
+        if(scriptNameLC = 'cell') then begin
+            Result := 'CELL';
+            exit;
+        end;
+        if(scriptNameLC = 'class') then begin
+            Result := 'CLAS';
+            exit;
+        end;
+        if(scriptNameLC = 'combatstyle') then begin
+            Result := 'CSTY';
+            exit;
+        end;
+        if(scriptNameLC = 'component') then begin
+            Result := 'CMPO';
+            exit;
+        end;
+        if(scriptNameLC = 'container') then begin
+            Result := 'CONT';
+            exit;
+        end;
+        if(scriptNameLC = 'door') then begin
+            Result := 'DOOR';
+            exit;
+        end;
+        if(scriptNameLC = 'defaultobject') then begin
+            Result := 'DFOB';
+            exit;
+        end;
+        if(scriptNameLC = 'effectshader') then begin
+            Result := 'EFSH';
+            exit;
+        end;
+        if(scriptNameLC = 'enchantment') then begin
+            Result := 'ENCH';
+            exit;
+        end;
+        if(scriptNameLC = 'encounterzone') then begin
+            Result := 'ECZN';
+            exit;
+        end;
+        if(scriptNameLC = 'equipslot') then begin
+            Result := 'EQUP';
+            exit;
+        end;
+        if(scriptNameLC = 'explosion') then begin
+            Result := 'EXPL';
+            exit;
+        end;
+        if(scriptNameLC = 'faction') then begin
+            Result := 'FACT';
+            exit;
+        end;
+        if(scriptNameLC = 'formlist') then begin
+            Result := 'FLST';
+            exit;
+        end;
+        if(scriptNameLC = 'globalvariable') then begin
+            Result := 'GLOB';
+            exit;
+        end;
+        if(scriptNameLC = 'hazard') then begin
+            Result := 'HAZD';
+            exit;
+        end;
+        if(scriptNameLC = 'headpart') then begin
+            Result := 'HDPT';
+            exit;
+        end;
+        if(scriptNameLC = 'holotape') then begin
+            Result := 'NOTE';
+            exit;
+        end;
+        if(scriptNameLC = 'idle') then begin
+            Result := 'IDLE';
+            exit;
+        end;
+        if(scriptNameLC = 'idlemarker') then begin
+            Result := 'IDLM';
+            exit;
+        end;
+        if(scriptNameLC = 'imagespacemodifier') then begin
+            Result := 'IMAD';
+            exit;
+        end;
+        if(scriptNameLC = 'impactdataset') then begin
+            Result := 'IPDS';
+            exit;
+        end;
+        if(scriptNameLC = 'ingredient') then begin
+            Result := 'INGR';
+            exit;
+        end;
+        if(scriptNameLC = 'instancenamingrules') then begin
+            Result := 'INNR';
+            exit;
+        end;
+        if(scriptNameLC = 'keyword') then begin
+            Result := 'KYWD';
+            exit;
+        end;
+        if(scriptNameLC = 'locationreftype') then begin
+            Result := 'LCRT';
+            exit;
+        end;
+        if(scriptNameLC = 'leveledactor') then begin
+            Result := 'LVLN';
+            exit;
+        end;
+        if(scriptNameLC = 'leveleditem') then begin
+            Result := 'LVLI';
+            exit;
+        end;
+        if(scriptNameLC = 'light') then begin
+            Result := 'LIGH';
+            exit;
+        end;
+        if(scriptNameLC = 'location') then begin
+            Result := 'LCTN';
+            exit;
+        end;
+        if(scriptNameLC = 'magiceffect') then begin
+            Result := 'MGEF';
+            exit;
+        end;
+        if(scriptNameLC = 'message') then begin
+            Result := 'MESG';
+            exit;
+        end;
+        if(scriptNameLC = 'miscobject') then begin
+            Result := 'MISC';
+            exit;
+        end;
+        if(scriptNameLC = 'constructibleobject') then begin
+            Result := 'COBJ';
+            exit;
+        end;
+        if(scriptNameLC = 'key') then begin
+            Result := 'KEYM';
+            exit;
+        end;
+        if(scriptNameLC = 'musictype') then begin
+            Result := 'MUSC';
+            exit;
+        end;
+        if(scriptNameLC = 'objectmod') then begin
+            Result := 'OMOD';
+            exit;
+        end;
+        if(scriptNameLC = 'outfit') then begin
+            Result := 'OTFT';
+            exit;
+        end;
+        if(scriptNameLC = 'outputmodel') then begin
+            Result := 'SOPM';
+            exit;
+        end;
+        if(scriptNameLC = 'package') then begin
+            Result := 'PACK';
+            exit;
+        end;
+        if(scriptNameLC = 'perk') then begin
+            Result := 'PERK';
+            exit;
+        end;
+        if(scriptNameLC = 'potion') then begin
+            Result := 'ALCH';
+            exit;
+        end;
+        if(scriptNameLC = 'projectile') then begin
+            Result := 'PROJ';
+            exit;
+        end;
+        if(scriptNameLC = 'quest') then begin
+            Result := 'QUST';
+            exit;
+        end;
+        if(scriptNameLC = 'race') then begin
+            Result := 'RACE';
+            exit;
+        end;
+        if(scriptNameLC = 'shaderparticlegeometry') then begin
+            Result := 'SPGD';
+            exit;
+        end;
+        if(scriptNameLC = 'sound') then begin
+            Result := 'SNDR';
+            exit;
+        end;
+        if(scriptNameLC = 'soundcategory') then begin
+            Result := 'SNCT';
+            exit;
+        end;
+        if(scriptNameLC = 'soundcategorysnapshot') then begin
+            Result := 'SCSN';
+            exit;
+        end;
+        if(scriptNameLC = 'spell') then begin
+            Result := 'SPEL';
+            exit;
+        end;
+        if(scriptNameLC = 'movablestatic') then begin
+            Result := 'MSTT';
+            exit;
+        end;
+        if(scriptNameLC = 'terminal') then begin
+            Result := 'TERM';
+            exit;
+        end;
+        if(scriptNameLC = 'textureset') then begin
+            Result := 'TXST';
+            exit;
+        end;
+        if(scriptNameLC = 'visualeffect') then begin
+            Result := 'RFCT';
+            exit;
+        end;
+        if(scriptNameLC = 'voicetype') then begin
+            Result := 'VTYP';
+            exit;
+        end;
+        if(scriptNameLC = 'watertype') then begin
+            Result := 'WATR';
+            exit;
+        end;
+        if(scriptNameLC = 'weapon') then begin
+            Result := 'WEAP';
+            exit;
+        end;
+        if(scriptNameLC = 'weather') then begin
+            Result := 'WTHR';
+            exit;
+        end;
+        if(scriptNameLC = 'worldspace') then begin
+            Result := 'WLRD';
+            exit;
+        end;
+
+        // for statics, just return STAT, do the SCOL handling outside
+        if(scriptNameLC = 'static') then begin
+            Result := 'STAT';
+            exit;
+        end;
+
+        // within quest
+        if(scriptNameLC = 'topic') then begin
+            Result := 'DIAL';
+            exit;
+        end;
+        if(scriptNameLC = 'topicinfo') then begin
+            Result := 'INFO';
+            exit;
+        end;
+        if(scriptNameLC = 'scene') then begin
+            Result := 'SCEN';
+            exit;
+        end;
+
+        // these aren't used and don't have signatures, it seems
+        {
+            shout
+            wordofpower
+            leveledspell
+            scroll
+            soulgem
+        }
+    end;
+
     function readPexScriptFull(scriptName: string; mergeWith: TJsonObject): TJsonObject;
     var
         curPexData, curObject: IInterface;
@@ -226,95 +733,10 @@ unit CheckMissingMandatoryProps;
         i, j: integer;
         curObjectsArray: TJsonArray;
     begin
+        if(scriptName = '') then exit;
         // TODO potentially blacklist all vanilla scripts
-        if
-            (scriptName = '') or
-            (scriptName = 'Action') or
-            (scriptName = 'Activator') or
-            (scriptName = 'ActiveMagicEffect') or
-            (scriptName = 'Actor') or
-            (scriptName = 'ActorBase') or
-            (scriptName = 'ActorValue') or
-            (scriptName = 'Alias') or
-            (scriptName = 'Ammo') or
-            (scriptName = 'Armor') or
-            (scriptName = 'Book') or
-            (scriptName = 'CameraShot') or
-            (scriptName = 'Cell') or
-            (scriptName = 'Class') or
-            (scriptName = 'CombatStyle') or
-            (scriptName = 'Component') or
-            (scriptName = 'ConstructibleObject') or
-            (scriptName = 'Container') or
-            (scriptName = 'Door') or
-            (scriptName = 'Form') or
-            (scriptName = 'Enchantment') or
-            (scriptName = 'EncounterZone') or
-            (scriptName = 'Explosion') or
-            (scriptName = 'Faction') or
-            (scriptName = 'Flora') or
-            (scriptName = 'FormList') or
-            (scriptName = 'Furniture') or
-            (scriptName = 'Game') or
-            (scriptName = 'GlobalVariable') or
-            (scriptName = 'Hazard') or
-            (scriptName = 'HazardBase') or
-            (scriptName = 'HeadPart') or
-            (scriptName = 'Quest') or
-            (scriptName = 'Holotape') or
-            (scriptName = 'Idle') or
-            (scriptName = 'IdleMarker') or
-            (scriptName = 'ImageSpaceModifier') or
-            (scriptName = 'ImpactDataSet') or
-            (scriptName = 'Ingredient') or
-            (scriptName = 'InputEnableLayer') or
-            (scriptName = 'InstanceNamingRules') or
-            (scriptName = 'Key') or
-            (scriptName = 'Keyword') or
-            (scriptName = 'LeveledActor') or
-            (scriptName = 'LeveledItem') or
-            (scriptName = 'LeveledSpell') or
-            (scriptName = 'Light') or
-            (scriptName = 'Location') or
-            (scriptName = 'LocationAlias') or
-            (scriptName = 'LocationRefType') or
-            (scriptName = 'MagicEffect') or
-            (scriptName = 'Math') or
-            (scriptName = 'Message') or
-            (scriptName = 'MiscObject') or
-            (scriptName = 'MovableStatic') or
-            (scriptName = 'MusicType') or
-            (scriptName = 'ObjectMod') or
-            (scriptName = 'ObjectReference') or
-            (scriptName = 'Outfit') or
-            (scriptName = 'OutputModel') or
-            (scriptName = 'Package') or
-            (scriptName = 'Perk') or
-            (scriptName = 'Potion') or
-            (scriptName = 'Projectile') or
-            (scriptName = 'Race') or
-            (scriptName = 'Scene') or
-            (scriptName = 'ShaderParticleGeometry') or
-            (scriptName = 'Shout') or
-            (scriptName = 'SoulGem') or
-            (scriptName = 'Sound') or
-            (scriptName = 'SoundCategory') or
-            (scriptName = 'SoundCategorySnapshot') or
-            (scriptName = 'Spell') or
-            (scriptName = 'Static') or
-            (scriptName = 'TalkingActivator') or
-            (scriptName = 'Terminal') or
-            (scriptName = 'TextureSet') or
-            (scriptName = 'Topic') or
-            (scriptName = 'TopicInfo') or
-            (scriptName = 'VisualEffect') or
-            (scriptName = 'VoiceType') or
-            (scriptName = 'Weapon') or
-            (scriptName = 'Weather') or
-            (scriptName = 'WordOfPower') or
-            (scriptName = 'WorldSpace') or
-            (scriptName = 'ScriptObject')
-        then begin
+        if(getFormScriptType(scriptName) <> SCRIPT_TYPE_INVALID) then begin
+            // "invalid" means: nothing known
             exit;
         end;
 
@@ -463,21 +885,93 @@ unit CheckMissingMandatoryProps;
         end;
     end;
 
-    function attemptAutofill(script: IInterface; propName, propType: string): boolean;
+    function getFormByTypeAndEdidCached(edid: string; typeString: string): IInterface;
+    begin
+
+    end;
+
+    function attemptAutofill(script: IInterface; propName, propType: string; isMandatory: boolean): boolean;
     var
         foundForm : IInterface;
+        formType: integer;
+        sig: string;
     begin
         Result := false;
-        if(not autoFill) then exit;
+        if(isMandatory) then begin
+            if(not autoFillMandatory) then exit;
+        end else begin
+            if(not autoFillOptional) then exit;
+        end;
 
-        foundForm := GetFormByEdidCached(propName);
+        formType := getFormScriptType(propType);
+        case formType of
+            SCRIPT_TYPE_INVALID, SCRIPT_TYPE_INTERNAL:
+                begin
+                    exit;
+                end;
+            SCRIPT_TYPE_BASE:
+                begin
+                    if(not autoFillBasicTypes) then begin
+                        exit;
+                    end;
+                    foundForm := GetFormByEdidCached(propName);
+                    Result := true;
+                end;
+            SCRIPT_TYPE_RECORD:
+                begin
+                    // okay...
+                    sig := scriptNameToSignature(propType);
+                    if(sig <> '') then begin
+                        foundForm := FindObjectByEdidAndSignature(propName, sig);
+                        // special handling
+                        if(not assigned(foundForm)) then begin
+                            if(sig = 'STAT') then begin
+                                // also try SCOL
+                                foundForm := FindObjectByEdidAndSignature(propName, 'SCOL');
+                            end;
+                        end;
+                    end;
+                end;
+            SCRIPT_TYPE_REF:
+                begin
+                    foundForm := FindReferenceByEdid(propName);
+                    // AddMessage('Auto-filling references is not yet implemented.');
+                    // exit;
+                end;
+            SCRIPT_TYPE_ALIAS:
+                begin
+                    AddMessage('Auto-filling aliases is not yet implemented.');
+                    exit;
+                end;
+        end;
+        {SCRIPT_TYPE_INVALID = -1; // not anything known
+        SCRIPT_TYPE_INTERNAL = 0; // stuff which shouldn't be extended or such
+        SCRIPT_TYPE_BASE = 1;     // Form and ScriptObject
+        SCRIPT_TYPE_RECORD = 2;   // base forms, like Actor or Keyword or Static
+        SCRIPT_TYPE_REF = 3;      // any ObjectReference, REFR, ACHR, PGRE
+        SCRIPT_TYPE_ALIAS = 4;    // any alias from a quest}
+
+
+        // autoFillBasicTypes
+
+        // AddMessage('Attempted AutoFill: '+propName+' of type '+propType);
+        // foundForm := GetFormByEdidCached(propName);
         if(not assigned(foundForm)) then begin
             exit;
         end;
-        // TODO: also check the signature and script of foundForm
 
         setScriptProp(script, propName, foundForm);
         Result := true;
+    end;
+
+    function getScriptOrFragment(e: IInterface; scriptName: string): IInterface;
+    begin
+        Result := getFragmentScript(e);
+        if (LowerCase(geevt(Result, 'scriptName')) = LowerCase(scriptName)) then begin
+            exit;
+        end;
+
+        Result := getScript(e, scriptName);
     end;
 
     procedure processScriptLists(e: IInterface; scriptName: string; elementProps, pexProps: TJsonObject);
@@ -490,7 +984,12 @@ unit CheckMissingMandatoryProps;
         isScalar, isAlias, isAutofilled, isMandatory: boolean;
 
     begin
-        script := getScript(e, scriptName);
+        script := getScriptOrFragment(e, scriptName);
+        if(not assigned(script)) then begin
+            AddMessage('Failed to find '+scriptName+' in the object again');
+            exit;
+        end;
+
         autoFillList := TJsonObject.create;
         missingList := TJsonObject.create;
 
@@ -511,7 +1010,7 @@ unit CheckMissingMandatoryProps;
                 isAlias := isPropTypeAlias(curType);
 
                 isMandatory := pexProps.O[curPropName].B['mandatory'];
-                
+
                 isAutofilled := false;
 
                 {
@@ -524,13 +1023,13 @@ unit CheckMissingMandatoryProps;
                 if(not isAlias) and (not isScalar) then begin
                     // hopefully, this is a form
                     // AddMessage('I think type '+curType+' is a form');
-                    if(attemptAutofill(script, curPropDisplayName, curType)) then begin
+                    if(attemptAutofill(script, curPropDisplayName, curType, isMandatory)) then begin
                         isAutofilled := true;
                         //AddMessage('Auto-filled '+scriptName+':'+curPropName);
                         autoFillList.A[scriptName].add(curPropDisplayName);
                     end;
                 end;
-                
+
                 if(not isAutofilled and isMandatory) then begin
                     missingList.A[scriptName].add(curPropDisplayName);
                     foundErrors := foundErrors + 1;
@@ -545,7 +1044,7 @@ unit CheckMissingMandatoryProps;
         missingList.free();
         autoFillList.free();
     end;
-    
+
     procedure reportAutofill(e: IInterface; missingList: TJsonObject);
     var
         i, j: integer;
@@ -619,8 +1118,9 @@ unit CheckMissingMandatoryProps;
 
         for i:=0 to curList.count-1 do begin
             curNameLC := curList.Names[i];
+            if(curNameLC = '') then continue;
             curName := curList.O[curNameLC].S['name'];
-            // AddMessage('checking #'+IntToStr(i)+' curname='+curName);
+            // AddMessage('checking #'+IntToStr(i)+' curname='+curName+' curNameLC='+curNameLC);
 
             curScriptList := curList.O[curNameLC];
 
