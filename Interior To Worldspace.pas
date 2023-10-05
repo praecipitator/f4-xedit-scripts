@@ -529,7 +529,7 @@ unit InteriorToWorldspace;
     function getWorldspaceCell(ws: IInterface; gridX, gridY: integer): IInterface;
     var
         i, x, y: integer;
-        childGroup, cell: IInterface;
+        cell: IInterface;
         blockidx, subblockidx, cellidx: integer;
         wrldgrup, block, subblock: IInterface;
     begin
