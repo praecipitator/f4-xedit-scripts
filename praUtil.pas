@@ -1,7 +1,7 @@
 {
     Some useful functions.
 
-    Version 2023-09-18.1
+    Version 2023-10-05
 }
 unit PraUtil;
 
@@ -1484,6 +1484,59 @@ unit PraUtil;
             end
         end;
 
+    end;
+    
+    // linkage
+    {
+        Returns whatever `fromRef` might be linked to using `usingKw`
+    }
+    function getLinkedRef(fromRef, usingKw: IInterface): IInterface;
+    var
+        i: integer;
+        outLinks, lnk, kw: IInterface;
+    begin
+        Result := nil;
+        outLinks := ElementByPath(fromRef, 'Linked References');
+        if(not assigned(outLinks)) then exit;
+
+        for i:=0 to ElementCount(outLinks)-1 do begin
+            lnk := ElementByIndex(outLinks, i);
+
+            kw := pathLinksTo(lnk, 'Keyword/Ref');
+
+            if(not assigned(usingKw)) then begin
+                if(not assigned(kw)) then begin
+                    Result := pathLinksTo(lnk, 'Ref');
+                    exit;
+                end;
+            end else begin
+                if (isSameForm(kw, usingKw)) then begin
+                    Result := pathLinksTo(lnk, 'Ref');
+                    exit;
+                end;
+            end;
+        end;
+    end;
+
+    {
+        Returns a TList of ObjectReferences which are linked to `toRef` using `usingKw`
+    }
+    function getLinkedRefChildren(toRef, usingKw: IInterface): TList;
+    var
+        i: integer;
+        curRef, linkBack: IInterface;
+    begin
+        Result := TList.create;
+
+        for i:= 0 to ReferencedByCount(toRef)-1 do begin
+            curRef := WinningOverrideOrSelf(ReferencedByIndex(toRef, i));
+            // linked?
+            linkBack := getLinkedRef(curRef, usingKw);
+
+            if(isSameForm(linkBack, toRef)) then begin
+                Result.add(curRef);
+            end;
+        end;
     end;
 
     // Formlist-Manipulation functions

@@ -197,8 +197,6 @@ unit NifBatchDeFullPrec;
                     vertexDesc := rootBlock.Elements['VertexDesc'];
                     vertexFlags := vertexDesc.NativeValues['VF'];
                     if (vertexFlags and FLAG_FULL_PREC <> 0) then begin
-                        // AddMessage('got it');
-
                         numTriShapes := numTriShapes + 1;
                         vertexFlags := vertexFlags and (not FLAG_FULL_PREC);
 
@@ -287,6 +285,7 @@ unit NifBatchDeFullPrec;
         // I think there are more, TODO add them
         triShapeTypes.add('BSTriShape');
         triShapeTypes.add('BSMeshLODTriShape');
+        triShapeTypes.add('BSTriShapeSubIndex');
 
         frm := TForm.Create(nil);
         try
