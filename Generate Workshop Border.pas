@@ -1,16 +1,34 @@
 {
-    Run on exterior workshop.
+    Run on exterior workshop reference. In theory, this should work on multiple workshops, showing the config UI for each.
 
-    NOT YET FUNCTIONAL: doesn't process LAND properly
-    for testing, change saveNifAs to a valid path on your end
+    Explanation of the options in the UI:
+        - Output File:
+                            Output NIF will be written here. Click the ... button to open a "Save File" dialog.
+        - Border Height:
+                            Determines how far up the border extends above the terrain. Vanilla seems to use 256, but that might look too low, especially on very uneven terrain.
+                            Default: 256
+        - Border Depth:
+                            Determines how far down the border sinks below the terrain. This helps to cover up the imperfections.
+                            Default: 128
+        - Height Precision:
+                            Determines how close the border follows the terrain vertically, lower = closer, higher = looser.
+                            The value is the distance between intermediate points along a border segment, a lower value means more points will be created.
+                            The distance between the vertices in a cell's heigtmap is 128, so there is probably no need to set it to anything lower.
+                            No intermediate points will be created across "flat" terrain.
+                            Default: 128
+        - Height Tolerance:
+                            Determines what "flat" means in regard of the above setting.
+                            Height differences below this value will be considered equal.
+                            Default: 8
 }
 unit WorkshopBorder;
     uses praUtil;
     uses CobbLibrary;
 
     const
-        cellCacheFile = ProgramPath + 'Edit Scripts\Generate Workshop Border - Cell Cache.json';
-        
+        cellCacheFileName = ProgramPath + 'Edit Scripts\Generate Workshop Border - Cell Cache.json';
+        configFileName = ProgramPath + 'Edit Scripts\Generate Workshop Border - Config.json';
+
         primitiveLinkEdid = 'WorkshopLinkedPrimitive';
         SCALE_FACTOR_TERRAIN = 8;
 
@@ -26,31 +44,77 @@ unit WorkshopBorder;
         uvTop = '0.875000 0.171875';
         uvBottom = '0.125000 0.828125';
 
-        // temp, moveto config/UI
-        saveNifAs = 'F:\MO2-Games\Fallout4\mods\Pond Settlement DEV\Meshes\pra\PondBorder.nif'; // DEBUG
 
-        borderHeight = 512;
-        borderPrecision = 128;
-        borderDownHeight = 128;
+
     var
+        heightTolerance: float;
+        borderHeight: float;
+        borderPrecision: float;
+        borderDownHeight: float;
         primitiveLinkKw: IInterface;
-        //polygonEdges: TJsonObject;
+
         cellHeights: TJsonObject;
         wsOrigin: TJsonObject;
         currentPolygon: TJsonObject; // contains 'edges'.
         debugIndex: integer;
         cellCache: TStringList;
         worldspaceCellCache: TJsonObject;
+        saveNifAs: string;
+        debugMode: boolean;
+
+    procedure loadConfig();
+    var
+        configFile: TJsonObject;
+    begin
+        // defaults
+        borderHeight := 256;
+        borderPrecision := 128;
+        borderDownHeight := 128;
+        heightTolerance := 8;
+        debugMode := false;
+
+        if(not FileExists(configFileName)) then exit;
+        configFile := TJsonObject.create();
+        configFile.LoadFromFile(configFileName);
+
+        borderHeight        := configFile.F['borderHeight'];
+        borderPrecision     := configFile.F['borderPrecision'];
+        borderDownHeight    := configFile.F['borderDownHeight'];
+        heightTolerance     := configFile.F['heightTolerance'];
+        debugMode           := configFile.B['debugMode'];
+
+        if(borderHeight = 0) then borderHeight := 256;
+        if(borderPrecision = 0) then borderPrecision := 128;
+        if(borderDownHeight = 0) then borderDownHeight := 128;
+        if(heightTolerance = 0) then heightTolerance := 8;
+
+        configFile.free();
+    end;
+
+    procedure saveConfig();
+    var
+        configFile: TJsonObject;
+    begin
+        configFile := TJsonObject.create();
+        configFile.F['borderHeight'] := borderHeight;
+        configFile.F['borderPrecision'] := borderPrecision;
+        configFile.F['borderDownHeight'] := borderDownHeight;
+        configFile.F['heightTolerance'] := heightTolerance;
+        configFile.B['debugMode'] := debugMode;
+
+        configFile.SaveToFile(configFileName, false);
+        configFile.free();
+    end;
 
     procedure loadCellCache();
     begin
-        if(not FileExists(cellCacheFile)) then exit;
-        worldspaceCellCache.LoadFromFile(cellCacheFile);
+        if(not FileExists(cellCacheFileName)) then exit;
+        worldspaceCellCache.LoadFromFile(cellCacheFileName);
     end;
 
     procedure saveCellCache();
     begin
-        worldspaceCellCache.SaveToFile(cellCacheFile, false);
+        worldspaceCellCache.SaveToFile(cellCacheFileName, false);
     end;
 
     procedure writeSvgHeightmap(cellData: TJsonObject; fName: string);
@@ -112,7 +176,7 @@ unit WorkshopBorder;
         outLines.Add('xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"');
         outLines.Add('xmlns:svg="http://www.w3.org/2000/svg"');
         outLines.Add('xmlns="http://www.w3.org/2000/svg">');
-        
+
         // AddMessage('MinHeight = '+IntToStr(minHeight)+' MaxHeight = '+IntToStr(maxHeight));
 
         // now output the rects
@@ -480,8 +544,7 @@ unit WorkshopBorder;
                     if(y = 0) then begin // actually the very first value
                         rowStartVal := curVal + landOffset;
                     end else begin
-                        rowStartVal := curVal + rowStartVal; // Jonathan says this
-                        //rowStartVal := curVal + landOffset;
+                        rowStartVal := curVal + rowStartVal;
                     end;
 
                     landValue := rowStartVal;
@@ -535,7 +598,9 @@ unit WorkshopBorder;
             // fill
             AddMessage('Loading terrain from '+IntToStr(cellX)+'/'+IntToStr(cellY));
             cellHeightmap := getCellHeightmap(cellX, cellY, worldSpace);
-            writeSvgHeightmap(cellHeightmap, 'cell_'+indexX+'_'+indexY+'.svg');
+            if(debugMode) then begin
+                writeSvgHeightmap(cellHeightmap, 'cell_'+indexX+'_'+indexY+'.svg');
+            end;
             // AddMessage('cellHeightmap='+cellHeightmap.toString());
             cellHeights.O[indexX].O[indexY] := cellHeightmap;
         end;
@@ -586,7 +651,7 @@ unit WorkshopBorder;
         if(fId = 0) then exit;
 
         wsKey := FormToAbsStr(worldSpace);
-        
+
         // if(worldspaceCellCache.O[wsKey].O[IntToStr(gridX)].Types[IntToStr(gridY)] = JSON_TYPE_STRING)
 
         worldspaceCellCache.O[wsKey].O[IntToStr(gridX)].S[IntToStr(gridY)] := FormToAbsStr(cell);
@@ -768,7 +833,7 @@ unit WorkshopBorder;
 
     procedure writeEdgeToNif(edge, vertData, triData: TJsonArray; reverse: boolean);
     var
-        iVert1, iVert2, iVert3, iVert4: integer;
+        iVert1, iVert2, iVert3, iVert4, iVert5, iVert6: integer;
        // vertData, triData: TJsonObject;
        isInner: boolean;
     begin
@@ -779,6 +844,8 @@ unit WorkshopBorder;
             3---4
             | \ |
             1---2
+            | \ |
+            5---6
             A   B
         }
         // with the tris being 1 2 3 and 2 4 3
@@ -789,30 +856,47 @@ unit WorkshopBorder;
         iVert2 := iVert1 + 1;
         iVert3 := iVert2 + 1;
         iVert4 := iVert3 + 1;
+        iVert5 := iVert4 + 1;
+        iVert6 := iVert5 + 1;
 
         isInner := not reverse;
 
-        // 1, a bottom
+        // 1, a mid
         writeVertex(edge.O['a'].F['x'], edge.O['a'].F['y'], edge.O['a'].F['z'] + 0, false, isInner, vertData);
-        // 2, b bottom
+        // 2, b mid
         writeVertex(edge.O['b'].F['x'], edge.O['b'].F['y'], edge.O['b'].F['z'] + 0, false, isInner, vertData);
         // 3, a top
         writeVertex(edge.O['a'].F['x'], edge.O['a'].F['y'], edge.O['a'].F['z'] + borderHeight, true, isInner, vertData);
         // 4, b top
         writeVertex(edge.O['b'].F['x'], edge.O['b'].F['y'], edge.O['b'].F['z'] + borderHeight, true, isInner, vertData);
+        // 5, a bottom
+        writeVertex(edge.O['a'].F['x'], edge.O['a'].F['y'], edge.O['a'].F['z'] - borderDownHeight, false, isInner, vertData);
+        // 6, b bottom
+        writeVertex(edge.O['b'].F['x'], edge.O['b'].F['y'], edge.O['b'].F['z'] - borderDownHeight, false, isInner, vertData);
 
         if(not reverse) then begin
             // write tris
             // 1 2 3
             triData.Add(IntToStr(iVert1)+' '+IntToStr(iVert2)+' '+IntToStr(iVert3));
-            /// 2 4 3
+            // 2 4 3
             triData.Add(IntToStr(iVert2)+' '+IntToStr(iVert4)+' '+IntToStr(iVert3));
+            // 5 6 1
+            triData.Add(IntToStr(iVert5)+' '+IntToStr(iVert6)+' '+IntToStr(iVert1));
+            // 6 2 1
+            triData.Add(IntToStr(iVert6)+' '+IntToStr(iVert2)+' '+IntToStr(iVert1));
         end else begin
             // 1 3 2
             triData.Add(IntToStr(iVert1)+' '+IntToStr(iVert3)+' '+IntToStr(iVert2));
             // 3 4 2
             triData.Add(IntToStr(iVert3)+' '+IntToStr(iVert4)+' '+IntToStr(iVert2));
+            // 5 1 6
+            triData.Add(IntToStr(iVert5)+' '+IntToStr(iVert1)+' '+IntToStr(iVert6));
+            // 6 1 2
+            triData.Add(IntToStr(iVert6)+' '+IntToStr(iVert1)+' '+IntToStr(iVert2));
         end;
+
+        // now also write the bottom part
+
     end;
 
     procedure writeNif();
@@ -899,6 +983,8 @@ unit WorkshopBorder;
         cellHeights := TJsonObject.create;
         worldspaceCellCache := TJsonObject.create;
         loadCellCache();
+
+        loadConfig();
     end;
 
     function getSizeVector(e: IInterface): TJsonObject;
@@ -999,36 +1085,6 @@ unit WorkshopBorder;
         end;
     end;
 
-    function intersectEdgeWithEdgeAlt(edge1, edge2: TJsonObject): TJsonObject;
-    var
-        x1, x2, y1, y2, m1, t1: float; // of edge1
-        x3, x4, y3, y4, m2, t2: float; // of edge2
-
-
-
-    begin
-        x1 := edge1.O['a'].F['x'];
-        x2 := edge1.O['b'].F['x'];
-        y1 := edge1.O['a'].F['y'];
-        y2 := edge1.O['b'].F['y'];
-
-        x3 := edge2.O['a'].F['x'];
-        x4 := edge2.O['b'].F['x'];
-        y3 := edge2.O['a'].F['y'];
-        y4 := edge2.O['b'].F['y'];
-
-        // y = mx + t
-        // t = y - mx
-
-        // y1 = m1*x1 + t1
-        // y2 = m1*x2 + t1
-        // y1 - m1*x1 = y2 - m1*x2
-        // y1 - y2 = m1*x1 - m1*x2
-        // y1 - y2 = m1*(x1 - x2)
-        // m1 =  (y1 - y2) / (x1 - x2)
-
-
-    end;
 
     function intersectEdgeWithEdge(edge1, edge2: TJsonObject): TJsonObject;
     var
@@ -1142,13 +1198,15 @@ unit WorkshopBorder;
     var
         newEdge: TJsonObject;
     begin
-        //x1, y1, x2, y2: float
+        //x1, y1, z1, x2, y2, z2: float
         newEdge := edgeArray.addObject();
         newEdge.O['a'].F['x'] := p1.F['x'];
         newEdge.O['a'].F['y'] := p1.F['y'];
+        newEdge.O['a'].F['z'] := p1.F['z'];
 
         newEdge.O['b'].F['x'] := p2.F['x'];
         newEdge.O['b'].F['y'] := p2.F['y'];
+        newEdge.O['b'].F['z'] := p2.F['z'];
     end;
 
     procedure insertSortPointIntoListRec(sortPoint: TJsonObject; sortedList: TJsonArray; startOffset, endOffset: integer);
@@ -1249,6 +1307,11 @@ unit WorkshopBorder;
         Result := sqr(p1.F['x']-p2.F['x']) + sqr(p1.F['y']-p2.F['y']);
     end;
 
+    function getPointDistance(p1, p2: TJsonObject): float;
+    begin
+        Result := sqrt(getPointDistanceSq(p1, p2));
+    end;
+
     procedure mergePolygonsHalf(poly1, poly2, outPoly: TJsonObject);
     var
         i: integer;
@@ -1256,13 +1319,18 @@ unit WorkshopBorder;
         pointAin, pointBin: boolean;
         edgesArray, intersectPoints, sortedIntersectPoints: TJsonArray;
     begin
+        if(debugMode) then begin
+            AddMessage('mergePolygonsHalf BEGIN');
+        end;
         // run this twice, with different order of arguments, to generate two halves, then merge
         // outArray := TJsonArray.create();
         edgesArray := outPoly.A['edges'];
         // add poly2 to poly1
         // let's iterate poly2's edges
         for i:=0 to poly2.A['edges'].count - 1 do begin
-            // AddMessage('Checking edge #'+IntToStr(i));
+            if(debugMode) then begin
+                AddMessage('Checking edge #'+IntToStr(i));
+            end;
             curEdge := poly2.A['edges'].O[i];
             //pointAin := isPointInPolygon(poly1.A['points'], curEdge.O['a'].F['x'], curEdge.O['a'].F['y']);
             //pointBin := isPointInPolygon(poly1.A['points'], curEdge.O['b'].F['x'], curEdge.O['b'].F['y']);
@@ -1275,7 +1343,9 @@ unit WorkshopBorder;
             // now: we have curEdge, and n intersectPoints. n should not be > 2
             case (intersectPoints.count) of
                 0:  begin
-                        // AddMessage('No Intersects');
+                        if(debugMode) then begin
+                            AddMessage('No Intersects');
+                        end;
                         // none intersects: either add the edge as-is, or don't
                         //  - both are in:  add nothing
                         //  - both are out: add the edge as-is
@@ -1285,16 +1355,19 @@ unit WorkshopBorder;
                             //intersectPoints.free();
                             // I hope `continue` doesn't interfere with the `case`
                             // continue; // both in, skip
-                            // AddMessage(' both in, skipping edge '+curEdge.toString());
+                            if(debugMode) then begin
+                                AddMessage(' both in, skipping edge '+curEdge.toString());
+                            end;
                         end else if (not pointAin) and (not pointBin) then begin
                             // both out, add
-                            // AddMessage(' both out, adding edge '+curEdge.toString());
+                            if(debugMode) then begin
+                                AddMessage(' both out, adding edge '+curEdge.toString());
+                            end;
                             appendObjectToArray(edgesArray, curEdge);
                             // continue;
                         end else begin;
                             // this shouldn't happen here
-                            // this occurs. what does it mean? prev error?
-                            // AddMessage('!!!ANOMALY: Edge doesn''t intersect, but points are halfway? This makes no sense');
+                            AddMessage('!!!ANOMALY: Edge doesn''t intersect, but points are halfway? This makes no sense');
                         end;
                     end;
                 1:  begin
@@ -1304,52 +1377,23 @@ unit WorkshopBorder;
                         //  - A is out: add A--IS
                         isPoint1 := intersectPoints.O[0];
                         if (pointAin and (not pointBin)) then begin
-                            // AddMessage(' IS--B');
+                            if(debugMode) then begin
+                                AddMessage(' IS--B');
+                            end;
                             appendEdge(edgesArray, isPoint1, curEdge.O['b']);
                         end else if ((not pointAin) and pointBin) then begin
-                            // AddMessage(' A--IS');
+                            if(debugMode) then begin
+                                AddMessage(' A--IS');
+                            end;
                             appendEdge(edgesArray, curEdge.O['a'], isPoint1);
                         end else begin
-                            // AddMessage('!!!ANOMALY: one intersect, but pointAin='+BoolToStr(pointAin)+' pointBin='+BoolToStr(pointBin));
+                            AddMessage('!!!ANOMALY: one intersect, but pointAin='+BoolToStr(pointAin)+' pointBin='+BoolToStr(pointBin));
                         end;
                     end;
-                {2:  begin
-                        AddMessage('Two Intersects');
-                        // two intersects (IS1, IS2)
-                        //  - both are in:  add IS1--IS2
-                        //  - both are out: add A--IS1 and IS2--B
-
-                        isPoint1 := intersectPoints.O[0];
-                        isPoint2 := intersectPoints.O[1];
-                        AddMessage('isPoint1='+isPoint1.toString()+' distToA='+FloatToStr(getPointDistanceSq(isPoint1, curEdge.O['a'])));
-                        AddMessage('isPoint2='+isPoint2.toString()+' distToA='+FloatToStr(getPointDistanceSq(isPoint2, curEdge.O['a'])));
-                        AddMessage('A='+curEdge.O['a'].toString());
-                        AddMessage('B='+curEdge.O['b'].toString());
-
-                        // normalize them so that IS1 is always the one closest to A
-                        if(getPointDistanceSq(isPoint2, curEdge.O['a']) < getPointDistanceSq(isPoint1, curEdge.O['a'])) then begin
-                            // swap
-                            AddMessage('Swapping');
-                            isPoint3 := isPoint1;
-                            isPoint1 := isPoint2;
-                            isPoint2 := isPoint3;
+                else begin
+                        if(debugMode) then begin
+                            AddMessage('N intersects, n = '+IntToStr(intersectPoints.count));
                         end;
-                        if(pointAin and pointBin) then begin
-                            AddMessage('IS1--IS2');
-                            appendEdge(edgesArray, isPoint1, isPoint2);
-                        end else if (not pointAin) and (not pointBin) then begin
-                            AddMessage('A--IS1');
-                            AddMessage('IS2--B');
-                            appendEdge(edgesArray, curEdge.O['a'], isPoint1);
-                            appendEdge(edgesArray, isPoint2, curEdge.O['b']);
-                            //AddMessage('edgesArray='+edgesArray.toString());
-                            // writeSvg(outPoly, 'TwoEdges.svg');
-                        end else begin
-                            AddMessage('!!!ANOMALY: two intersects, but pointAin='+BoolToStr(pointAin)+' pointBin='+BoolToStr(pointBin));
-
-                        end;}
-                    else begin
-                        //AddMessage('N intersects, n = '+IntToStr(intersectPoints.count));
 
                         //AddMessage('Unsorted list: '+intersectPoints.toString());
                         sortedIntersectPoints := sortPointsByDistance(curEdge.O['a'], intersectPoints);
@@ -1361,7 +1405,7 @@ unit WorkshopBorder;
                             appendObjectToArray(sortedIntersectPoints, curEdge.O['b']);
                         end;
                         if ((sortedIntersectPoints.count mod 2) <> 0) then begin
-                            //AddMessage('ERROR: sortedIntersectPoints ended up at an odd length!');
+                            AddMessage('ERROR: sortedIntersectPoints ended up at an odd length!');
                             exit;
                         end;
 
@@ -1370,7 +1414,9 @@ unit WorkshopBorder;
                         while(i<sortedIntersectPoints.count) do begin
                             isPoint1 := sortedIntersectPoints.O[i];
                             isPoint2 := sortedIntersectPoints.O[i+1];
-                            //AddMessage('Adding edge #'+IntToStr(i)+' '+isPoint1.toString()+' '+isPoint2.toString());
+                            if(debugMode) then begin
+                                AddMessage('Adding edge #'+IntToStr(i)+' '+isPoint1.toString()+' '+isPoint2.toString());
+                            end;
                             appendEdge(edgesArray, isPoint1, isPoint2);
                             i := i + 2;
                         end;
@@ -1392,18 +1438,26 @@ unit WorkshopBorder;
 
     function mergePolygons(poly1, poly2: TJsonObject): TJsonObject;
     begin
-        //AddMessage('MERGE POLYGONS BEGIN');
-        //writeSvg(poly1, 'PolyMerge'+IntToStr(debugIndex)+'_poly1.svg');
-        //writeSvg(poly2, 'PolyMerge'+IntToStr(debugIndex)+'_poly2.svg');
+        if(debugMode) then begin
+            AddMessage('Merge polygons BEGIN');
+            writeSvg(poly1, 'PolyMerge'+IntToStr(debugIndex)+'_poly1.svg');
+            writeSvg(poly2, 'PolyMerge'+IntToStr(debugIndex)+'_poly2.svg');
+        end;
 
         Result := TJsonObject.create;
-        //AddMessage(' -> half: poly2 -> poly1');
+
         mergePolygonsHalf(poly2, poly1, Result);
-        //writeSvg(Result, 'PolyMerge'+IntToStr(debugIndex)+'_firstMerge.svg');
-        //AddMessage(' -> half: poly1 -> poly2');
+
+        if(debugMode) then begin
+            writeSvg(Result, 'PolyMerge'+IntToStr(debugIndex)+'_firstMerge.svg');
+        end;
+
         mergePolygonsHalf(poly1, poly2, Result);
 
-        //writeSvg(Result, 'PolyMerge'+IntToStr(debugIndex)+'_result.svg');
+        if(debugMode) then begin
+            writeSvg(Result, 'PolyMerge'+IntToStr(debugIndex)+'_result.svg');
+            AddMessage('Merge polygons END');
+        end;
         debugIndex := debugIndex + 1;
     end;
 
@@ -1523,22 +1577,13 @@ unit WorkshopBorder;
             currentPolygon := newPoly;
         end;
 
-        // assert(nope); //!debug
-
-
-
-//        appendObjectToArray(points, curPoint);
-        //curPoint.free();
-
-        // need to find an okay format to store polygons
-        // this can work: https://wrfranklin.org/Research/Short_Notes/pnpoly.html
-
 
         // now we need:
         // [x] the points of the box, rotated (in the future, maybe even a 2d projection of the arbitrary rotated box)
         // [x] an algorithm to actually calculate the union of a set of polygons
         // [?] assemble the edges I found into a polygon with an inside and an outside
-        // [ ] read the LAND record, find the height for each edge. potentially add more points along the path?
+        // [x] read the LAND record, find the height for each edge.
+        // [x]add more points along the path
         // [x] actually write a NIF based on this...
 
 
@@ -1550,48 +1595,252 @@ unit WorkshopBorder;
         boxPosAdj.free();
     end;
 
+    procedure addIntermediatePoints(worldSpace: IInterface; point1, point2: TJsonObject; edgesArray: TJsonArray; xOffset, yOffset, zOffset: float);
+    var
+        distance, distanceTarget, curHeight, prevHeight: float;
+        i, numIntermediates: integer;
+        prevPoint, curPoint, tempPoint: TJsonObject;
+
+        curDistsance, t, curX, curY, curZ: float;
+    begin
+        //borderPrecision
+        //heightTolerance
+        distance := getPointDistance(point1, point2);
+
+        numIntermediates := distance/borderPrecision - 1;
+        //        prevPoint := //point1;
+        prevPoint := cloneJsonObject(point1);
+        //curHeight := getTerrainHeight(xOffset + point1.F['x'], yOffset + point1.F['y'], worldSpace) - zOffset;
+        //point1.F['z'] := curHeight;
+        curHeight := point1.F['z'];
+
+        prevHeight := curHeight;
+
+        curDistsance := 0;
+        // https://math.stackexchange.com/questions/175896/finding-a-point-along-a-line-a-certain-distance-away-from-another-point
+        for i:=0 to numIntermediates-1 do begin
+            curDistsance := borderPrecision * (i+1);
+            // d_t is borderPrecision
+            t := curDistsance/distance;
+
+            curX := (1-t)*point1.F['x'] + t*point2.F['x'];
+            curY := (1-t)*point1.F['y'] + t*point2.F['y'];
+            curZ := getTerrainHeight(xOffset + curX, yOffset + curY, worldSpace) - zOffset;
+            if(floatEqualsWithTolerance(prevHeight, curZ, heightTolerance)) then continue; // skip this
+
+            prevHeight := curZ;
+            curPoint := TJsonObject.create;
+            curPoint.F['x'] := curX;
+            curPoint.F['y'] := curY;
+            curPoint.F['z'] := curZ;
+
+            // otherwise add prevPoint and curPoint
+            appendEdge(edgesArray, prevPoint, curPoint);
+            prevPoint.free();
+            prevPoint := curPoint;
+        end;
+
+        // finally add prevPoint and point2
+        appendEdge(edgesArray, prevPoint, point2);
+        prevPoint.free();
+
+    end;
+
     procedure addTerrainHeight(workShop, worldSpace: IInterface);
     var
         i: integer;
         curEdge, point1, point2: TJsonObject;
         curHeight, wsX, wsY, wsZ: float;
+        newPolygon, prevPolygon: TJsonObject;
     begin
+        newPolygon := TJsonObject.create;
+        //borderPrecision
+
         wsX := GetElementNativeValues(workShop, 'DATA\Position\X');
         wsY := GetElementNativeValues(workShop, 'DATA\Position\Y');
         wsZ := GetElementNativeValues(workShop, 'DATA\Position\Z');
+
         // will this edit in-place, or return? We'll see
         for i:=0 to currentPolygon.A['edges'].count-1 do begin
             curEdge := currentPolygon.A['edges'].O[i];
 
-            point1 := curEdge.O['a'];
-            point2 := curEdge.O['b'];
+            point1 := cloneJsonObject(curEdge.O['a']);
+            point2 := cloneJsonObject(curEdge.O['b']);
 
             point1.F['z'] := getTerrainHeight(wsX + point1.F['x'], wsY + point1.F['y'], worldSpace) - wsZ;
             point2.F['z'] := getTerrainHeight(wsX + point2.F['x'], wsY + point2.F['y'], worldSpace) - wsZ;
+
+            addIntermediatePoints(worldSpace, point1, point2, newPolygon.A['edges'], wsX, wsY, wsZ);
+
+            point1.free();
+            point2.free();
         end;
+
+        prevPolygon := currentPolygon;
+        currentPolygon := newPolygon;
+        prevPolygon.free();
+    end;
+
+
+
+    function getWorkshopDescription(wsRef: IInterface): string;
+    var
+        location: IInterface;
+    begin
+        location := pathLinksTo(wsRef, 'XLRL');
+        if(assigned(location)) then begin
+            Result := ShortName(wsRef) + ' at ' + getElementEditValues(location, 'FULL');
+            exit;
+        end;
+        Result := ShortName(wsRef);
+    end;
+
+    procedure outputBrowseHandler(Sender: TObject);
+	var
+		inputPath: TEdit;
+		pathStr: string;
+	begin
+		inputPath := TLabeledEdit(sender.parent.FindComponent('editOutput'));
+		pathStr := ShowSaveFileDialog('Save Output As', 'NIF Files|*.nif|All Files|*.*');
+		if(pathStr <> '') then begin
+            if(not strEndsWithCI(pathStr, '.nif')) then begin
+                pathStr := pathStr + '.nif';
+            end;
+			inputPath.Text := pathStr;
+		end;
+	end;
+
+    procedure cacheClearHandler(Sender: TObject);
+	var
+		btnClearCache: TButton;
+        cacheLabel: TLabel;
+	begin
+		btnClearCache := TButton(sender.parent.FindComponent('btnClearCache'));
+		cacheLabel := TLabel(sender.parent.FindComponent('cacheLabel'));
+
+        worldspaceCellCache.clear();
+
+        AddMessage('Cache cleared.');
+
+        btnClearCache.enabled := false;
+        cacheLabel.Text := 'Cell Cache Empty';
+	end;
+
+
+    function showGui(wsRef: IInterface): boolean;
+    var
+        frm: TForm;
+        btnOk, btnCancel, btnBrowse, btnClearCache: TButton;
+		editOutput, editHeightTop, editHeightBottom, editPrecision, editTolerance: TLabeledEdit;
+        resultCode: cardinal;
+        cacheLabel: TLabel;
+    begin
+        Result := false;
+        frm := CreateDialog('Generate Workshop Border', 450, 300);
+        CreateLabel(frm, 10, 10, 'Processing: '+getWorkshopDescription(wsRef));
+
+        editOutput := CreateLabelledInput(frm, 10, 50, 380, 50, 'Output File:', '');
+        editOutput.Name := 'editOutput';
+        editOutput.Text := '';
+        btnBrowse := CreateButton(frm, 400, 48, '...');
+        btnBrowse.onclick := outputBrowseHandler;
+
+        {borderHeight: float;
+        borderPrecision: float;
+        borderDownHeight: float;}
+
+        editHeightTop := CreateLabelledInput(frm, 10, 100, 160, 50, 'Border Height', FloatToStr(borderHeight));
+        editHeightBottom := CreateLabelledInput(frm, 200, 100, 160, 50, 'Border Depth', FloatToStr(borderDownHeight));
+
+
+        editPrecision := CreateLabelledInput(frm, 10, 140, 160, 50, 'Height Precision', FloatToStr(borderPrecision));
+        editTolerance := CreateLabelledInput(frm, 200, 140, 160, 50, 'Height Tolerance', FloatToStr(heightTolerance));
+
+        cacheLabel := CreateLabel(frm, 10, 174, 'Cell Cache Empty');
+        cacheLabel.Name := 'cacheLabel';
+        btnClearCache := CreateButton(frm, 200, 170, 'Clear Cell Cache');
+        btnClearCache.Name := 'btnClearCache';
+        btnClearCache.enabled := false;
+        btnClearCache.onclick := cacheClearHandler;
+
+        if(worldspaceCellCache.count > 0) then begin
+            btnClearCache.enabled := true;
+            cacheLabel.Text := 'Cell Cache Loaded';
+        end;
+
+        btnOk     := CreateButton(frm, 130, 210, '  OK  ');
+        btnCancel := CreateButton(frm, 210, 210, 'Cancel');
+
+        btnOk.Default := true;
+        btnOk.ModalResult := mrYes;
+
+        btnCancel.ModalResult := mrCancel;
+
+
+        {
+        saveNifAs = 'F:\MO2-Games\Fallout4\mods\Pond Settlement DEV\Meshes\pra\PondBorder.nif'; // DEBUG
+
+        borderHeight = 512;
+        borderPrecision = 128;
+        borderDownHeight = 128;
+        }
+        resultCode := frm.ShowModal();
+        if(resultCode = mrYes) then begin
+            borderHeight := StrToFloat(editHeightTop.Text);
+            borderPrecision := StrToFloat(editPrecision.Text);
+            borderDownHeight := StrToFloat(editHeightBottom.Text);
+
+            saveNifAs := trim(editOutput.Text);
+            if(saveNifAs <> '') then begin
+                Result := true;
+            end;
+            saveConfig();
+        end;
+
+        frm.free();
+
+
+    end;
+    
+    function isCellInterior(cell: IInterface): boolean;
+    var
+        dataFlags: cardinal;
+    begin
+        // interior flag: 1
+        dataFlags := GetElementNativeValues(cell, 'DATA');
+        Result := (dataFlags and 1) <> 0;
     end;
 
     procedure processWorkshop(wsRef: IInterface);
     var
         boxes: TList;
         i: integer;
-        watTest, worldSpace: IInterface;
+        watTest, worldSpace, wsCell: IInterface;
     begin
+        wsCell := pathLinksTo(wsRef, 'CELL');
+        if(isCellInterior(wsCell)) then exit;
         // find the worldspace of this wsRef
-        worldSpace := pathLinksTo(pathLinksTo(wsRef, 'CELL'), 'Worldspace');
+        worldSpace := pathLinksTo(wsCell, 'Worldspace');
 
         if(not assigned(worldSpace)) or (Signature(worldSpace) <> 'WRLD') then begin
-            AddMessage('Failed to get worldspace from '+FullPath(wsRef));
+            if(debugMode) then begin
+                AddMessage('Failed to get worldspace from '+FullPath(wsRef));
+            end;
             exit;
         end;
 
         boxes := getLinkedRefChildren(wsRef, primitiveLinkKw);
         if(boxes.count = 0) then begin,
-            AddMessage('Found no building area boxes, nothing to do.');
+            if(debugMode) then begin
+                AddMessage('Found no building area boxes, nothing to do.');
+            end;
             boxes.free();
             exit;
         end;
         AddMessage('Processing Workshop: ' + FullPath(wsRef));
+        if (not showGui(wsRef)) then begin
+            exit;
+        end;
         wsOrigin := getPositionVector(wsRef, 'DATA');
 
         currentPolygon := TJsonObject.create;
@@ -1604,7 +1853,9 @@ unit WorkshopBorder;
         end;
 
         // AddMessage('Output='+currentPolygon.toString());
-        writeSvg(currentPolygon, 'output.svg');
+        if(debugMode) then begin
+            writeSvg(currentPolygon, 'output.svg');
+        end;
 
         //AddMessage('Caching Cells');
         //cacheWorldspaceCells(worldSpace);
@@ -1617,11 +1868,11 @@ unit WorkshopBorder;
 
         wsOrigin.free();
         //polygonEdges.free();
-        
+
         currentPolygon.free();
         boxes.free();
     end;
-    
+
     procedure testReference(e: IInterface);
     var
         refX, refY, terrainHeight: float;
@@ -1629,11 +1880,11 @@ unit WorkshopBorder;
     begin
         refX := GetElementNativeValues(e, 'DATA\Position\X');
         refY := GetElementNativeValues(e, 'DATA\Position\Y');
-        
+
         refWs := pathLinksTo(pathLinksTo(e, 'CELL'), 'Worldspace');
-        
+
         terrainHeight := getTerrainHeight(refX, refY, refWs);
-        
+
         AddMessage('For ref at '+FloatToStr(refX)+'/'+FloatToStr(refY)+' got height: '+FloatToStr(terrainHeight));
     end;
 
@@ -1658,7 +1909,7 @@ unit WorkshopBorder;
         end;
 
         saveCellCache();
-        
+
         cellHeights.free();
         worldspaceCellCache.free();
     end;
