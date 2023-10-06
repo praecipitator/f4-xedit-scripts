@@ -1,6 +1,6 @@
 {
     Run on exterior workshop.
-    
+
     NOT YET FUNCTIONAL: doesn't process LAND properly
     for testing, change saveNifAs to a valid path on your end
 }
@@ -9,22 +9,29 @@ unit WorkshopBorder;
     uses CobbLibrary;
 
     const
-        svgPath = ProgramPath + 'Edit Scripts\';
+        cellCacheFile = ProgramPath + 'Edit Scripts\Generate Workshop Border - Cell Cache.json';
+        
         primitiveLinkEdid = 'WorkshopLinkedPrimitive';
+        SCALE_FACTOR_TERRAIN = 8;
+
+        // svg output stuff
+        svgPath = ProgramPath + 'Edit Scripts\';
         targetWidth = 512;
         extraBorder = 8;
+        rectSize = 8;
 
         vertexColorTop = '#00000000';
         vertexColorRed = '#C02D00FF';
         vertexColorGreen = '#00C000FF';
-
         uvTop = '0.875000 0.171875';
         uvBottom = '0.125000 0.828125';
 
         // temp, moveto config/UI
         saveNifAs = 'F:\MO2-Games\Fallout4\mods\Pond Settlement DEV\Meshes\pra\PondBorder.nif'; // DEBUG
-        //borderHeight = 256;
+
         borderHeight = 512;
+        borderPrecision = 128;
+        borderDownHeight = 128;
     var
         primitiveLinkKw: IInterface;
         //polygonEdges: TJsonObject;
@@ -33,6 +40,97 @@ unit WorkshopBorder;
         currentPolygon: TJsonObject; // contains 'edges'.
         debugIndex: integer;
         cellCache: TStringList;
+        worldspaceCellCache: TJsonObject;
+
+    procedure loadCellCache();
+    begin
+        if(not FileExists(cellCacheFile)) then exit;
+        worldspaceCellCache.LoadFromFile(cellCacheFile);
+    end;
+
+    procedure saveCellCache();
+    begin
+        worldspaceCellCache.SaveToFile(cellCacheFile, false);
+    end;
+
+    procedure writeSvgHeightmap(cellData: TJsonObject; fName: string);
+    var
+        outLines: TStringList;
+        i: integer;
+        minX, minY, maxX, maxY, width, height: float;
+        minHeight, maxHeight, scaleFactor, curHeight: float;
+        curEdge: TJsonObject;
+        x, y: integer;
+        xIndex, yIndex, colorTest: string;
+    begin
+        // rectSize =
+        //invert y: SVGs use HTML coordinates
+        minX := 0;
+        minY := 0;
+        maxX := 32 * rectSize;
+        maxY := 32 * rectSize;
+
+        minHeight := 900000;
+        maxHeight := -900000;
+        for x:=0 to 32 do begin
+            xIndex := IntToStr(x);
+            for y:=0 to 32 do begin
+                yIndex := IntToStr(y);
+                curHeight := cellData.O[xIndex].F[yIndex];
+                if(curHeight < minHeight) then begin
+                    minHeight := curHeight;
+                end;
+                if(curHeight > maxHeight) then begin
+                    maxHeight := curHeight;
+                end;
+            end;
+        end;
+
+
+        width := maxX - minX;
+        height := maxY - minY;
+
+
+        // now scale it somewhat
+        // scale = 1024 = targetWidth
+        if(width > height) then begin
+            scaleFactor := targetWidth / width; // width * x = 1024 ; x = 1024 / width
+        end else begin
+            scaleFactor := targetWidth / height;
+        end;
+
+        scaleFactor := 1;
+
+        width := width * scaleFactor;
+        height := height * scaleFactor;
+
+        width := width + extraBorder*2;
+        height := height + extraBorder*2;
+
+        outLines := TStringList.create();
+        outLines.Add('<svg width="'+IntToStr(width)+'" height="'+IntToStr(height)+'" viewBox="'+IntToStr(minX * scaleFactor)+' '+IntToStr(minY * scaleFactor)+' '+IntToStr(width)+' '+IntToStr(height)+'"');
+        outLines.Add('xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"');
+        outLines.Add('xmlns:svg="http://www.w3.org/2000/svg"');
+        outLines.Add('xmlns="http://www.w3.org/2000/svg">');
+        
+        // AddMessage('MinHeight = '+IntToStr(minHeight)+' MaxHeight = '+IntToStr(maxHeight));
+
+        // now output the rects
+        for x:=0 to 32 do begin
+            xIndex := IntToStr(x);
+            for y:=0 to 32 do begin
+                yIndex := IntToStr(y);
+                curHeight := (cellData.O[xIndex].F[yIndex] - minHeight) / (maxHeight - minHeight) * 255;
+                colorTest := IntToHex(curHeight, 2);
+                outLines.Add('<rect x="'+IntToStr(x * rectSize)+'" y="'+IntToStr(height - y * rectSize)+'" width="'+IntToStr(rectSize)+'" height="'+IntToStr(rectSize)+'" fill="#'+colorTest+colorTest+colorTest+'" />');
+            end;
+        end;
+
+        outLines.Add('</svg>');
+        outLines.SaveToFile(svgPath+fName);
+
+        outLines.free();
+    end;
 
     procedure writeSvg(poly: TJsonObject; fName: string);
     var
@@ -333,7 +431,7 @@ unit WorkshopBorder;
     begin
         // permGroup := FindChildGroup(ChildGroup(cell), 8, cell); // can LAND even be persistent? I don't think it can
         tempGroup := FindChildGroup(ChildGroup(cell), 9, cell);
-        Result := findLandInGroup(tempGroup);
+        Result := HighestOverrideOrSelf(findLandInGroup(tempGroup), 9000);
     end;
 
     function getCellHeightmap(cellX, cellY: integer; worldSpace: IInterface): TJsonObject;
@@ -377,16 +475,21 @@ unit WorkshopBorder;
                 end;
 
 
-                if(x = 0) then begin  // starting new row
+
+                if(x = 0) then begin  // starting new column
                     if(y = 0) then begin // actually the very first value
                         rowStartVal := curVal + landOffset;
+                    end else begin
+                        rowStartVal := curVal + rowStartVal; // Jonathan says this
+                        //rowStartVal := curVal + landOffset;
                     end;
 
-                    landValue := rowStartVal
+                    landValue := rowStartVal;
                 end else begin
                     // otherwise, just keep incrementing
                     landValue := landValue + curVal;
                 end;
+
 
                 Result.O[xString].F[yString] := landValue;
             end;
@@ -419,6 +522,7 @@ unit WorkshopBorder;
         localX := getLocalCellCoord(globalX, cellX);
         localY := getLocalCellCoord(globalY, cellY);
 
+
         terrainX := getLandGridCoord(localX);
         terrainY := getLandGridCoord(localY);
 
@@ -431,6 +535,7 @@ unit WorkshopBorder;
             // fill
             AddMessage('Loading terrain from '+IntToStr(cellX)+'/'+IntToStr(cellY));
             cellHeightmap := getCellHeightmap(cellX, cellY, worldSpace);
+            writeSvgHeightmap(cellHeightmap, 'cell_'+indexX+'_'+indexY+'.svg');
             // AddMessage('cellHeightmap='+cellHeightmap.toString());
             cellHeights.O[indexX].O[indexY] := cellHeightmap;
         end;
@@ -438,33 +543,60 @@ unit WorkshopBorder;
         indexTerrainX := IntToStr(terrainX);
         indexTerrainY := IntToStr(terrainY);
 
-        Result := cellHeights.O[indexX].O[indexY].O[indexTerrainX].F[indexTerrainY];
+        Result := (cellHeights.O[indexX].O[indexY].O[indexTerrainX].F[indexTerrainY]) * SCALE_FACTOR_TERRAIN;
+        //Result := cellHeights.O[indexX].O[indexY].O[indexTerrainY].F[indexTerrainX];
         // cellHeights.O[IntToStr(cellX)].O[IntToStr(cellY)]
     end;
 
-    function getCachedCell(gridX, gridY: integer): IInterface;
+    function getCachedCell(worldSpace: IInterface; gridX, gridY: integer): IInterface;
     var
-        key: string;
+        key, wsKey, cellKey: string;
         i: integer;
     begin
+        worldSpace := MasterOrSelf(worldSpace);
+        wsKey := FormToAbsStr(worldSpace);
+        Result := nil;
+        if (worldspaceCellCache.Types[wsKey] <> JSON_TYPE_OBJECT) then begin
+            // AddMessage('cachedType='+IntToStr(worldspaceCellCache.Types[wsKey]));
+            // haven't cached this worldspace yet
+            AddMessage('Caching WorldSpace '+FullPath(worldSpace));
+            cacheWorldspaceCells(worldSpace);
+        end;
+
+
+        cellKey := worldspaceCellCache.O[wsKey].O[IntToStr(gridX)].S[IntToStr(gridY)];
+        if(cellKey = '') then exit;
+        Result := AbsStrToForm(cellKey);
+        {
         key := IntToStr(gridX)+'_'+IntToStr(gridY);
         i := cellCache.indexOf(key);
         if(i < 0) then exit;
 
         Result := ObjectToElement(cellCache.Objects[i]);
+        }
     end;
 
-    procedure setCachedCell(gridX, gridY: integer; cell: IInterface);
+    procedure setCachedCell(worldSpace: IInterface; gridX, gridY: integer; cell: IInterface);
     var
-        key: string;
+        key, wsKey: string;
         i: integer;
+        fId: cardinal;
     begin
-        key := IntToStr(gridX)+'_'+IntToStr(gridY);
-        i := cellCache.indexOf(key);
-        if(i >= 0) then exit;
+        fId := FormID(cell);
+        if(fId = 0) then exit;
 
-        // AddMessage('Caching cell '+key+' '+FullPath(cell));
-        cellCache.AddObject(key, cell);
+        wsKey := FormToAbsStr(worldSpace);
+        
+        // if(worldspaceCellCache.O[wsKey].O[IntToStr(gridX)].Types[IntToStr(gridY)] = JSON_TYPE_STRING)
+
+        worldspaceCellCache.O[wsKey].O[IntToStr(gridX)].S[IntToStr(gridY)] := FormToAbsStr(cell);
+
+
+        //key := IntToStr(gridX)+'_'+IntToStr(gridY);
+        //i := cellCache.indexOf(key);
+        //if(i >= 0) then exit;
+
+        //cellCache.AddObject(key, cell);
     end;
 
 
@@ -490,15 +622,18 @@ unit WorkshopBorder;
                 // traverse Cells
                 for cellidx := 0 to ElementCount(subblock)-1 do begin
                     cell := ElementByIndex(subblock, cellidx);
-                    x := getElementNativeValues(cell, 'XCLC\X');
-                    y := getElementNativeValues(cell, 'XCLC\Y');
-                    // AddMessage('Checking cell '+IntToStr(x)+'/'+IntToStr(y));
-                    setCachedCell(x, y, cell);
+                    if(assigned(cell)) then begin
+                        x := getElementNativeValues(cell, 'XCLC\X');
+                        y := getElementNativeValues(cell, 'XCLC\Y');
+                        // AddMessage('Checking cell '+IntToStr(x)+'/'+IntToStr(y));
+                        setCachedCell(ws, x, y, cell);
+                    end;
                 end;
             end;
         end;
+        //AddMessage('cached='+worldspaceCellCache.toString());
     end;
-    
+
 
     function getWorldspaceCell(ws: IInterface; gridX, gridY: integer; createIfMissing: boolean): IInterface;
     var
@@ -508,7 +643,7 @@ unit WorkshopBorder;
         wrldgrup, block, subblock: IInterface;
         watTest: IInterface;
     begin
-        cell := getCachedCell(gridX, gridY);
+        cell := getCachedCell(ws, gridX, gridY);
         if(assigned(cell)) then begin
             Result := cell;
             exit;
@@ -563,11 +698,11 @@ unit WorkshopBorder;
         // bottom left -> origin
         // Row = Y
         // Col = X
-        Result := localCoord/4096.0 * 33.0;
+        Result := localCoord/4096.0 * 32.0;
     end;
 
     {
-        Should return the coordinates from the cell's bottom left
+        Should return the coordinates of a ref within the cell, from the cell's bottom left
     }
     function getLocalCellCoord(worldCoord: float; cellCoord: integer): float;
     var
@@ -603,11 +738,15 @@ unit WorkshopBorder;
     begin
         // numInt := worldCoord;
 
+        Result := gridCoord * 4096.0;
+
+        {
         if(gridCoord < 0) then begin
             Result := getGridCoordInverse((1 - (gridCoord+1))) * -1;
         end else begin
             Result := gridCoord shl 12;
         end;
+        }
     end;
 
     function writeVertex(x, y, z: float; isTop, isInner: boolean; vertData: TJsonArray): TJsonObject;
@@ -728,7 +867,7 @@ unit WorkshopBorder;
 
         triShapeBlock.EditValues['Num Triangles'] := trianglesJson.A['Triangles'].count;
         triShapeBlock.EditValues['Num Vertices'] := vertexDataJson.A['Vertex Data'].count;
-        
+
         triShapeBlock.UpdateBounds();
 
         //triShapeJson.S['Num Triangles'] := triShapeJson.A['Triangles'].count;
@@ -739,7 +878,7 @@ unit WorkshopBorder;
 
 
         nifJson.free();
-        Nif.SpellAddUpdateTangents(); 
+        Nif.SpellAddUpdateTangents();
         Nif.SpellUpdateTangents();
 
         Nif.SaveToFile(saveNifAs);
@@ -756,6 +895,10 @@ unit WorkshopBorder;
         cellCache := TStringList.create;
         cellCache.Duplicates := dupIgnore;
         cellCache.Sorted := true;
+
+        cellHeights := TJsonObject.create;
+        worldspaceCellCache := TJsonObject.create;
+        loadCellCache();
     end;
 
     function getSizeVector(e: IInterface): TJsonObject;
@@ -1411,10 +1554,11 @@ unit WorkshopBorder;
     var
         i: integer;
         curEdge, point1, point2: TJsonObject;
-        curHeight, wsX, wsY: float;
+        curHeight, wsX, wsY, wsZ: float;
     begin
         wsX := GetElementNativeValues(workShop, 'DATA\Position\X');
         wsY := GetElementNativeValues(workShop, 'DATA\Position\Y');
+        wsZ := GetElementNativeValues(workShop, 'DATA\Position\Z');
         // will this edit in-place, or return? We'll see
         for i:=0 to currentPolygon.A['edges'].count-1 do begin
             curEdge := currentPolygon.A['edges'].O[i];
@@ -1422,8 +1566,8 @@ unit WorkshopBorder;
             point1 := curEdge.O['a'];
             point2 := curEdge.O['b'];
 
-            point1.F['z'] := getTerrainHeight(wsX + point1.F['x'], wsY + point1.F['y'], worldSpace);
-            point2.F['z'] := getTerrainHeight(wsX + point2.F['x'], wsY + point2.F['y'], worldSpace);
+            point1.F['z'] := getTerrainHeight(wsX + point1.F['x'], wsY + point1.F['y'], worldSpace) - wsZ;
+            point2.F['z'] := getTerrainHeight(wsX + point2.F['x'], wsY + point2.F['y'], worldSpace) - wsZ;
         end;
     end;
 
@@ -1449,7 +1593,6 @@ unit WorkshopBorder;
         end;
         AddMessage('Processing Workshop: ' + FullPath(wsRef));
         wsOrigin := getPositionVector(wsRef, 'DATA');
-        cellHeights := TJsonObject.create;
 
         currentPolygon := TJsonObject.create;
 
@@ -1463,19 +1606,35 @@ unit WorkshopBorder;
         // AddMessage('Output='+currentPolygon.toString());
         writeSvg(currentPolygon, 'output.svg');
 
-        AddMessage('Caching Cells');
-        cacheWorldspaceCells(worldSpace);
+        //AddMessage('Caching Cells');
+        //cacheWorldspaceCells(worldSpace);
         AddMessage('Adding Terrain Height');
         addTerrainHeight(wsRef, worldSpace);
 
         AddMessage('Writing NIF');
         writeNif();
+        AddMessage('Finished!');
 
         wsOrigin.free();
         //polygonEdges.free();
-        cellHeights.free();
+        
         currentPolygon.free();
         boxes.free();
+    end;
+    
+    procedure testReference(e: IInterface);
+    var
+        refX, refY, terrainHeight: float;
+        refWs: IInterface;
+    begin
+        refX := GetElementNativeValues(e, 'DATA\Position\X');
+        refY := GetElementNativeValues(e, 'DATA\Position\Y');
+        
+        refWs := pathLinksTo(pathLinksTo(e, 'CELL'), 'Worldspace');
+        
+        terrainHeight := getTerrainHeight(refX, refY, refWs);
+        
+        AddMessage('For ref at '+FloatToStr(refX)+'/'+FloatToStr(refY)+' got height: '+FloatToStr(terrainHeight));
     end;
 
     // called for every record selected in xEdit
@@ -1485,8 +1644,8 @@ unit WorkshopBorder;
 
         processWorkshop(e);
 
-        // processing code goes here
-
+        // test something else
+        //testReference(e);
     end;
 
     // Called after processing
@@ -1497,6 +1656,11 @@ unit WorkshopBorder;
         if(cellCache <> nil) then begin
             cellCache.free();
         end;
+
+        saveCellCache();
+        
+        cellHeights.free();
+        worldspaceCellCache.free();
     end;
 
 end.
