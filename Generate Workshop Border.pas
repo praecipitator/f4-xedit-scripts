@@ -21,6 +21,10 @@
                             Height differences below this value will be considered equal.
                             Default: 8
 
+        - Clear Cache:
+                            The script builds a lookup cache to find cells by their coordinates more quickly.
+                            If the script has issues finding cells, you can try clearing this cache.
+
     Special thanks to Jonathan Ostrus for the code to parse exterior cell's terrain
 }
 unit WorkshopBorder;
@@ -1803,7 +1807,7 @@ unit WorkshopBorder;
 
 
     end;
-    
+
     function isCellInterior(cell: IInterface): boolean;
     var
         dataFlags: cardinal;
