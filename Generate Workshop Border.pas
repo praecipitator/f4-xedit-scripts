@@ -1,6 +1,8 @@
 {
     Run on exterior workshop reference. In theory, this should work on multiple workshops, showing the config UI for each.
 
+    The resulting NIF is intended to be positioned at the workshop's position, but without any rotation.
+
     Explanation of the options in the UI:
         - Output File:
                             Output NIF will be written here. Click the ... button to open a "Save File" dialog.
@@ -1795,6 +1797,7 @@ unit WorkshopBorder;
             borderHeight := StrToFloat(editHeightTop.Text);
             borderPrecision := StrToFloat(editPrecision.Text);
             borderDownHeight := StrToFloat(editHeightBottom.Text);
+            heightTolerance := StrToFloat(editTolerance.Text);
 
             saveNifAs := trim(editOutput.Text);
             if(saveNifAs <> '') then begin
