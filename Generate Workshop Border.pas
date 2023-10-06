@@ -20,6 +20,8 @@
                             Determines what "flat" means in regard of the above setting.
                             Height differences below this value will be considered equal.
                             Default: 8
+
+    Special thanks to Jonathan Ostrus for the code to parse exterior cell's terrain
 }
 unit WorkshopBorder;
     uses praUtil;
