@@ -2,6 +2,7 @@
     Run on exterior workshop reference. In theory, this should work on multiple workshops, showing the config UI for each.
 
     The resulting NIF is intended to be positioned at the workshop's position, but without any rotation.
+    TIP: select the Border, press Ctrl+Shift+A, and click the Workshop to align it.
 
     Explanation of the options in the UI:
         - Output File:
@@ -23,9 +24,18 @@
                             Height differences below this value will be considered equal.
                             Default: 8
 
-        - Clear Cache:
-                            The script builds a lookup cache to find cells by their coordinates more quickly.
-                            If the script has issues finding cells, you can try clearing this cache.
+        - Extend to Bottom of Build Area:
+                            The border will extend downwards to the lowest point of the Workshop's build area at least.
+
+        - Use Cell Water Height:
+                            If the cell's water height (not any water planes!) is above the terrain, it will be used instead of the terrain height.
+
+        - Soft Bottom Edge:
+                            The bottom edge of the border will fade out, like the top edge. It will be solid color otherwise.
+
+        - Flatten Bottom Edge:
+                            The border will extend downwards to it's lowest point.
+
 
     Special thanks to Jonathan Ostrus for the code to parse exterior cell's terrain
 }
@@ -63,12 +73,18 @@ unit WorkshopBorder;
 
         cellHeights: TJsonObject;
         wsOrigin: TJsonObject;
+        wsMinHeight: float;
+        borderMinHeight: float;
         currentPolygon: TJsonObject; // contains 'edges'.
         debugIndex: integer;
         cellCache: TStringList;
         worldspaceCellCache: TJsonObject;
         saveNifAs: string;
         debugMode: boolean;
+        extendToBottom: boolean;
+        useWaterHeight: boolean;
+        softBottomEdge: boolean;
+        flattenBottomEdge: boolean;
 
     procedure loadConfig();
     var
@@ -78,23 +94,32 @@ unit WorkshopBorder;
         borderHeight := 256;
         borderPrecision := 128;
         borderDownHeight := 128;
-        heightTolerance := 8;
+        heightTolerance := 16;
         debugMode := false;
+        extendToBottom := true;
+        useWaterHeight := true;
+        softBottomEdge := false;
+        flattenBottomEdge := false;
 
         if(not FileExists(configFileName)) then exit;
         configFile := TJsonObject.create();
         configFile.LoadFromFile(configFileName);
 
-        borderHeight        := configFile.F['borderHeight'];
-        borderPrecision     := configFile.F['borderPrecision'];
-        borderDownHeight    := configFile.F['borderDownHeight'];
-        heightTolerance     := configFile.F['heightTolerance'];
-        debugMode           := configFile.B['debugMode'];
+        borderHeight        := getJsonObjectValueVariant(configFile, 'borderHeight', borderHeight);
+        borderPrecision     := getJsonObjectValueVariant(configFile, 'borderPrecision', borderPrecision);
+        borderDownHeight    := getJsonObjectValueVariant(configFile, 'borderDownHeight', borderDownHeight);
+        heightTolerance     := getJsonObjectValueVariant(configFile, 'heightTolerance', heightTolerance);
+        debugMode           := getJsonObjectValueVariant(configFile, 'debugMode', debugMode);
+
+        extendToBottom      := getJsonObjectValueVariant(configFile, 'extendToBottom', extendToBottom);
+        useWaterHeight      := getJsonObjectValueVariant(configFile, 'useWaterHeight', useWaterHeight);
+        softBottomEdge      := getJsonObjectValueVariant(configFile, 'softBottomEdge', softBottomEdge);
+        flattenBottomEdge      := getJsonObjectValueVariant(configFile, 'flattenBottomEdge', flattenBottomEdge);
 
         if(borderHeight = 0) then borderHeight := 256;
         if(borderPrecision = 0) then borderPrecision := 128;
         if(borderDownHeight = 0) then borderDownHeight := 128;
-        if(heightTolerance = 0) then heightTolerance := 8;
+        if(heightTolerance = 0) then heightTolerance := 16;
 
         configFile.free();
     end;
@@ -109,6 +134,10 @@ unit WorkshopBorder;
         configFile.F['borderDownHeight'] := borderDownHeight;
         configFile.F['heightTolerance'] := heightTolerance;
         configFile.B['debugMode'] := debugMode;
+        configFile.B['extendToBottom'] := extendToBottom;
+        configFile.B['useWaterHeight'] := useWaterHeight;
+        configFile.B['softBottomEdge'] := softBottomEdge;
+        configFile.B['flattenBottomEdge'] := flattenBottomEdge;
 
         configFile.SaveToFile(configFileName, false);
         configFile.free();
@@ -381,7 +410,7 @@ unit WorkshopBorder;
         triShape.S['Data Size'] := '336';
 
         vertex := triShape.A['Vertex Data'].addObject();
-        vertex.S['Vertex'] := '-0.000006 -96.000000 168.000000';
+        vertex.S['Vertex'] := '-0.123456 -96.000000 168.000000';
         vertex.S['Bitangent X'] := '0.000000';
         vertex.S['UV'] := '0.125000 0.171875';
         vertex.S['Normal'] := '1.000000 -0.003922 -0.003922';
@@ -391,7 +420,7 @@ unit WorkshopBorder;
         vertex.S['Vertex Colors'] := '#00000000';
 
         vertex := triShape.A['Vertex Data'].addObject();
-        vertex.S['Vertex'] := '0.000000 -96.000000 100.000000';
+        vertex.S['Vertex'] := '0.000000 -96.123456 100.000000';
         vertex.S['Bitangent X'] := '0.000000';
         vertex.S['UV'] := '0.125000 0.500000';
         vertex.S['Normal'] := '1.000000 -0.003922 -0.003922';
@@ -401,7 +430,7 @@ unit WorkshopBorder;
         vertex.S['Vertex Colors'] := '#0040003F';
 
         vertex := triShape.A['Vertex Data'].addObject();
-        vertex.S['Vertex'] := '0.000000 96.000000 100.000000';
+        vertex.S['Vertex'] := '0.000000 96.000000 100.123456';
         vertex.S['Bitangent X'] := '0.000000';
         vertex.S['UV'] := '0.125000 0.500000';
         vertex.S['Normal'] := '1.000000 -0.003922 -0.003922';
@@ -512,13 +541,22 @@ unit WorkshopBorder;
         x, y: integer;
         xString, yString: string;
         landOffset, landValue, curVal, rowStartVal: float;
+        waterHeight, landHeightScaled: float;
     begin
         Result := TJsonObject.create;
         cell := getWorldspaceCell(worldSpace, cellX, cellY, false);
         if(not assigned(cell)) then begin
-            AddMessage('Found no cell');
+            AddMessage('ERROR! Found no cell!');
             // todo: something
             exit;
+        end;
+
+        if(useWaterHeight) then begin
+            if(getElementEditValues(cell, 'XCLW') <> 'Default') then begin
+                waterHeight := getElementNativeValues(cell, 'XCLW');
+            end else begin
+                waterHeight := getElementNativeValues(worldSpace, 'DNAM\Default Water Height');
+            end;
         end;
 
         land := findLand(cell);
@@ -560,9 +598,18 @@ unit WorkshopBorder;
                     // otherwise, just keep incrementing
                     landValue := landValue + curVal;
                 end;
+                
+                landHeightScaled := landValue * SCALE_FACTOR_TERRAIN;
 
-
-                Result.O[xString].F[yString] := landValue;
+                if(useWaterHeight) then begin
+                    if(landHeightScaled > waterHeight) then begin
+                        Result.O[xString].F[yString] := landHeightScaled;
+                    end else begin
+                        Result.O[xString].F[yString] := waterHeight;
+                    end;
+                end else begin
+                    Result.O[xString].F[yString] := landHeightScaled;
+                end
             end;
         end;
 
@@ -616,7 +663,7 @@ unit WorkshopBorder;
         indexTerrainX := IntToStr(terrainX);
         indexTerrainY := IntToStr(terrainY);
 
-        Result := (cellHeights.O[indexX].O[indexY].O[indexTerrainX].F[indexTerrainY]) * SCALE_FACTOR_TERRAIN;
+        Result := (cellHeights.O[indexX].O[indexY].O[indexTerrainX].F[indexTerrainY]);
         //Result := cellHeights.O[indexX].O[indexY].O[indexTerrainY].F[indexTerrainX];
         // cellHeights.O[IntToStr(cellX)].O[IntToStr(cellY)]
     end;
@@ -822,10 +869,134 @@ unit WorkshopBorder;
         }
     end;
 
-    function writeVertex(x, y, z: float; isTop, isInner: boolean; vertData: TJsonArray): TJsonObject;
+    function writeVertex(x, y, z: float; isTop, isInner: boolean; vertData: TwbNifBlock): TwbNifBlock;
+    var
+        newVertex: TwbNifBlock;
+    begin
+        Result := vertData.Add();
+        Result.EditValues['Vertex'] := formatFloatForNif(x)+' '+formatFloatForNif(y)+' '+formatFloatForNif(z);
+        // writeVertexCoords(x, y, z, Result); // not sure if my bit-fuckery is any faster than xedit's own sting to half-prec float, and I might have made a mistake
+
+        if(isTop) then begin
+            Result.EditValues['UV'] := uvTop;
+            Result.EditValues['Vertex Colors'] := vertexColorTop;
+        end else begin
+            Result.EditValues['UV'] := uvBottom;
+            if(isInner) then begin
+                Result.EditValues['Vertex Colors'] := vertexColorGreen;
+            end else begin
+                Result.EditValues['Vertex Colors'] := vertexColorRed;
+            end;
+        end;
+
+    end;
+
+    function writeTriangle(i1, i2, i3: integer; triData: TwbNifBlock): TwbNifBlock;
+    begin
+        Result := triData.Add();
+        Result.EditValue := IntToStr(i1)+' '+IntToStr(i2)+' '+IntToStr(i3);
+    end;
+
+    procedure writeEdgeToNif(edge: TJsonArray; vertData, triData: TwbNifBlock; reverse: boolean);
+    var
+        iVert1, iVert2, iVert3, iVert4, iVert5, iVert6: integer;
+       // vertData, triData: TJsonObject;
+       isInner: boolean;
+
+       baseZa, bottomZa, topZa: float;
+       baseZb, bottomZb, topZb: float;
+    begin
+        // 2 tris, 4 vertices
+        // how do I determine which way they face?
+        // let's draw like this:
+        {
+            3---4
+            | \ |
+            1---2
+            | \ |
+            5---6
+            A   B
+        }
+        // with the tris being 1 2 3 and 2 4 3
+        //vertData := triShape.A['Vertex Data'];
+        //triData := triShape.A['Triangles'];
+
+        iVert1 := vertData.count;
+        iVert2 := iVert1 + 1;
+        iVert3 := iVert2 + 1;
+        iVert4 := iVert3 + 1;
+        iVert5 := iVert4 + 1;
+        iVert6 := iVert5 + 1;
+
+        isInner := not reverse;
+
+        baseZa := edge.O['a'].F['z'];
+        bottomZa := edge.O['a'].F['z'] - borderDownHeight;
+        topZa := edge.O['a'].F['z'] + borderHeight;
+
+        baseZb := edge.O['b'].F['z'];
+        bottomZb := edge.O['b'].F['z'] - borderDownHeight;
+        topZb := edge.O['b'].F['z'] + borderHeight;
+
+        if (flattenBottomEdge) then begin
+            bottomZa := borderMinHeight;
+            bottomZb := borderMinHeight;
+        end;
+
+        if (extendToBottom) then begin
+            if(bottomZa > wsMinHeight) then bottomZa := wsMinHeight;
+            if(bottomZb > wsMinHeight) then bottomZb := wsMinHeight;
+        end;
+
+        // 1, a mid
+        writeVertex(edge.O['a'].F['x'], edge.O['a'].F['y'], baseZa, false, isInner, vertData);
+        // 2, b mid
+        writeVertex(edge.O['b'].F['x'], edge.O['b'].F['y'], baseZb, false, isInner, vertData);
+        // 3, a top
+        writeVertex(edge.O['a'].F['x'], edge.O['a'].F['y'], topZa, true, isInner, vertData);
+        // 4, b top
+        writeVertex(edge.O['b'].F['x'], edge.O['b'].F['y'], topZb, true, isInner, vertData);
+        // 5, a bottom
+        writeVertex(edge.O['a'].F['x'], edge.O['a'].F['y'], bottomZa, softBottomEdge, isInner, vertData);
+        // 6, b bottom
+        writeVertex(edge.O['b'].F['x'], edge.O['b'].F['y'], bottomZb, softBottomEdge, isInner, vertData);
+
+
+        if(not reverse) then begin
+            // write tris
+            // 1 2 3
+            writeTriangle(iVert1, iVert2, iVert3, triData);
+            // 2 4 3
+            writeTriangle(iVert2, iVert4, iVert3, triData);
+            // 5 6 1
+            writeTriangle(iVert5, iVert6, iVert1, triData);
+            // 6 2 1
+            writeTriangle(iVert6, iVert2, iVert1, triData);
+        end else begin
+            // 1 3 2
+            writeTriangle(iVert1, iVert3, iVert2, triData);
+            // 3 4 2
+            writeTriangle(iVert3, iVert4, iVert2, triData);
+            // 5 1 6
+            writeTriangle(iVert5, iVert1, iVert6, triData);
+            // 6 1 2
+            writeTriangle(iVert6, iVert1, iVert2, triData);
+        end;
+    end;
+
+    function formatFloatForNif(f: float): string;
+    begin
+        Result := FormatFloat('0.000000', f);
+        //Result := FormatFloat('0.000', f);
+    end;
+
+
+
+    function writeVertexJson(x, y, z: float; isTop, isInner: boolean; vertData: TJsonArray): TJsonObject;
     begin
         Result := vertData.addObject();
-        Result.S['Vertex'] := FloatToStr(x)+' '+FloatToStr(y)+' '+FloatToStr(z);
+        Result.S['Vertex'] := formatFloatForNif(x)+' '+formatFloatForNif(y)+' '+formatFloatForNif(z);
+        // AddMessage(Result.S['Vertex']);
         if(isTop) then begin
             Result.S['UV'] := uvTop;
             Result.S['Vertex Colors'] := vertexColorTop;
@@ -839,7 +1010,7 @@ unit WorkshopBorder;
         end;
     end;
 
-    procedure writeEdgeToNif(edge, vertData, triData: TJsonArray; reverse: boolean);
+    procedure writeEdgeToNifJson(edge, vertData, triData: TJsonArray; reverse: boolean);
     var
         iVert1, iVert2, iVert3, iVert4, iVert5, iVert6: integer;
        // vertData, triData: TJsonObject;
@@ -870,17 +1041,17 @@ unit WorkshopBorder;
         isInner := not reverse;
 
         // 1, a mid
-        writeVertex(edge.O['a'].F['x'], edge.O['a'].F['y'], edge.O['a'].F['z'] + 0, false, isInner, vertData);
+        writeVertexJson(edge.O['a'].F['x'], edge.O['a'].F['y'], edge.O['a'].F['z'] + 0, false, isInner, vertData);
         // 2, b mid
-        writeVertex(edge.O['b'].F['x'], edge.O['b'].F['y'], edge.O['b'].F['z'] + 0, false, isInner, vertData);
+        writeVertexJson(edge.O['b'].F['x'], edge.O['b'].F['y'], edge.O['b'].F['z'] + 0, false, isInner, vertData);
         // 3, a top
-        writeVertex(edge.O['a'].F['x'], edge.O['a'].F['y'], edge.O['a'].F['z'] + borderHeight, true, isInner, vertData);
+        writeVertexJson(edge.O['a'].F['x'], edge.O['a'].F['y'], edge.O['a'].F['z'] + borderHeight, true, isInner, vertData);
         // 4, b top
-        writeVertex(edge.O['b'].F['x'], edge.O['b'].F['y'], edge.O['b'].F['z'] + borderHeight, true, isInner, vertData);
+        writeVertexJson(edge.O['b'].F['x'], edge.O['b'].F['y'], edge.O['b'].F['z'] + borderHeight, true, isInner, vertData);
         // 5, a bottom
-        writeVertex(edge.O['a'].F['x'], edge.O['a'].F['y'], edge.O['a'].F['z'] - borderDownHeight, false, isInner, vertData);
+        writeVertexJson(edge.O['a'].F['x'], edge.O['a'].F['y'], edge.O['a'].F['z'] - borderDownHeight, false, isInner, vertData);
         // 6, b bottom
-        writeVertex(edge.O['b'].F['x'], edge.O['b'].F['y'], edge.O['b'].F['z'] - borderDownHeight, false, isInner, vertData);
+        writeVertexJson(edge.O['b'].F['x'], edge.O['b'].F['y'], edge.O['b'].F['z'] - borderDownHeight, false, isInner, vertData);
 
         if(not reverse) then begin
             // write tris
@@ -903,8 +1074,236 @@ unit WorkshopBorder;
             triData.Add(IntToStr(iVert6)+' '+IntToStr(iVert1)+' '+IntToStr(iVert2));
         end;
 
-        // now also write the bottom part
+    end;
 
+    function assembleHalfPrec(sgn, exp, val: cardinal): cardinal;
+    begin
+        Result := ((sgn shl $F) and $8000) or ((exp shl $A) and $7C00) or (val and $3FF);
+    end;
+
+    // 16 bits of the result number matter, the left-most 8 ones are the msb
+    function floatToHalfPrec(f: float): cardinal;
+    var
+        sgn, exp, val: cardinal;
+        sign, e, testVal: integer;
+        tempFloat: float;
+    begin
+        // AddMessage('recieved f = '+FloatToStr(f));
+        if(f = 0) then begin
+            // special case: just return all bits set to 0
+            Result := 0;
+            // AddMessage('first exit at 0 '+IntToStr(Result));
+            exit;
+        end;
+        sgn := 0;
+        if(f < 0) then begin
+            sgn := 1;
+            f := f * -1;
+        end;
+        // how would I know if I need to set the expontent to 0? probably by plain number size. these seem to be the "subnormal numbers"
+        // the largest subnormal number is 2^(-14) * (1023/1024). how much can pascal even store?
+        // 0,000060975551605224609375
+        if(f <= 0.000060975551605224609375) then begin
+            // so we're subnormal. this means the equation is
+            // f = 2^(-14) * (x/1024) where x is > 0 and < 1024.
+            // f / (2^(-14)) = x/1024
+            // x = 1024 * f / (2^(-14))
+
+            Result := assembleHalfPrec(sgn, 0, 1024 * f / Power(2, -14));
+            exit;
+        end;
+
+        // how do I know the expontent anyway?
+        // now the equation is:
+        // f = 2^e * (1 + x/1024)
+        // where we need to find both e and x
+        // we know that 0 < x < 1024, and -14 <= e <= 15, but does it help?
+        // we could literally iterate all the exponents until we find an x in range...
+        for e:=-14 to 15 do begin
+            // equation is
+            // f = 2^e * (1 + x/1024)
+            // f/2^e = 1 + x/1024
+            // f/2^e - 1 = x/1024
+            // (f/2^e - 1)*1024 = x
+
+            tempFloat := (f/Power(2.0, e) - 1.0) * 1024.0;
+            // important to check this as float, the number might be too huge for an integer
+            if (tempFloat > 0) and (tempFloat < 1024) then begin
+                testVal := tempFloat;
+                exp := e+15;
+                val := testVal;
+
+                Result := assembleHalfPrec(sgn, exp, val);
+                exit;
+            end;
+        end;
+
+        Result := 0;
+    end;
+
+    function halfPrecToFloat(msB, lsB: cardinal): float;
+    var
+        combined, sgn, exp, val: cardinal;
+
+        exponent, sign, x: integer;
+    begin
+        //AddMessage('Input: '+IntToStr(msb)+' '+IntToStr(lsB));
+        combined := (msB shl 8) or lsB;
+        //AddMessage('Combined: '+IntToStr(combined));
+        sgn := (combined and $8000) shr $F; // 1000 0000 0000 0000
+        exp := (combined and $7C00) shr $A; // 0111 1100 0000 0000
+        val := (combined and $3FF);         // 0000 0011 1111 1111
+
+        // AddMessage('SGN = '+IntToStr(sgn)+' EXP='+IntToStr(exp)+' VAL='+IntToStr(val));
+        // SGN = 1 EXP=11 VAL=999
+
+        exponent := exp-15;
+        if(exponent < -14) then exponent := -14;
+        // -4
+
+        sign := 1;
+        if(sgn = 1) then sign := -1;
+
+        x := 1;
+        if(exp = 0) then x := 0;
+
+        Result := sign * Power(2, exponent) * (x + val/1024);
+    end;
+
+    procedure writeVertexCoords(x, y, z: float; vertex: TwbNifBlock);
+    var
+        encX, encY, encZ: cardinal;
+        encXM, encXL, encYM, encYL, encZM, encZL: float;
+        something: variant;
+    begin
+        AddMessage(IntToStr(floatToHalfPrec(x)));
+        encX := floatToHalfPrec(x);
+        encY := floatToHalfPrec(y);
+        encZ := floatToHalfPrec(z);
+
+        encXM := (encX shr 8) and $FF;
+        encXL := encX and $FF;
+
+        encYM := (encY shr 8) and $FF;
+        encYL := encY and $FF;
+
+        encZM := (encZ shr 8) and $FF;
+        encZL := encZ and $FF;
+
+        // write order: x, y, z, lsB first
+        // damn I hope it will let me write this
+        something := vertex.NativeValues['Vertex'];
+        something[0] := encXL;
+        something[1] := encXM;
+        something[2] := encYL;
+        something[3] := encYM;
+        something[4] := encZL;
+        something[5] := encZM;
+
+        vertex.NativeValues['Vertex'] := something;
+        {
+        not like this
+        vertex.NativeValues['Vertex'][0] := encXL;
+        vertex.NativeValues['Vertex'][1] := encXM;
+        vertex.NativeValues['Vertex'][2] := encYL;
+        vertex.NativeValues['Vertex'][3] := encYM;
+        vertex.NativeValues['Vertex'][4] := encZL;
+        vertex.NativeValues['Vertex'][5] := encZM;
+        }
+    end;
+
+    procedure testVertData(wat: variant);
+    var
+        i, test: integer;
+        decX, decY, decZ: float;
+        reencX: cardinal;
+    begin
+        decX := halfPrecToFloat(wat[1], wat[0]);
+        decY := halfPrecToFloat(wat[3], wat[2]);
+        decZ := halfPrecToFloat(wat[5], wat[4]);
+        AddMessage('Decoded: '+FloatToStr(decX)+' '+FloatToStr(decY)+' '+FloatToStr(decZ));
+        // try reencoding the x
+        reencX := floatToHalfPrec(decX);
+        AddMessage('reencX'+IntToHex(reencX, 2));
+        // 6 long. maybe 12 for double precision?
+        // one float seems to be 2 bytes(?)
+        {
+            vertData #0 -0.123474 -96.000000 168.000000
+            got this: 0 -> 231 -> E7 <- least significant
+            got this: 1 -> 175 -> AF <- most significant
+                -> AFE7 = 1010 1111 1110 0111
+                          sEEE EEff ffff ffff
+                  exp: 01011: 11?? -15 + x = -4??
+                  fra: 999? -> 0,9755859375 * 0,0625
+                  // I think we need to subtract 15 from the expontent, but it must not be lower than -14
+                  // -> 0,12347412109375 * -1
+                  // exp = max(E - 15, -14)
+                  // sgn = if(s == 1) -1 else 1
+                  // x   = if(exp == 0) 0 else 1
+                  // val = sgn * 2^exp * (x + f/1024)
+
+            got this: 2 -> 0   -> 00
+            got this: 3 -> 214 -> D6
+                -> D600 = 1101 0110 0000 0000
+
+            got this: 4 -> 64  -> 40
+            got this: 5 -> 89  -> 59
+        }
+
+    end;
+
+    procedure testVertexData(vertData: TwbNifBlock);
+    var
+        i: integer;
+        added, wat: TwbNifBlock;
+        something: variant;
+        fl: float;
+    begin
+        // vertData.Clear; // nope
+        // added := vertData.Add(); // this works. I think it also returns something
+        // try removing it
+        //vertData.Remove();
+        // added.remove(); // this works
+
+        for i:=0 to vertData.count-1 do begin
+            wat := vertData[i];
+            //AddMessage('vertData #'+IntToStr(i)+' '+wat.EditValues['Vertex']);
+            something := wat.NativeValues['Vertex'];
+
+            AddMessage('vertData #'+IntToStr(i)+' '+wat.EditValues['Vertex'] );
+            testVertData(something);
+            //fl := something[0];
+            //AddMessage('got this: '+FloatToStr(fl));
+        end;
+
+        AddMessage(vertData.toJson(vertData));
+    end;
+
+    procedure ClearTriangleData(Triangles: TwbNifBlock);
+    var
+        entry: TwbNifBlock;
+    begin
+        while Triangles.count > 0 do begin
+            entry := Triangles[0];
+            // AddMessage('wat '+entry.EditValue);
+            entry.remove();
+        end;
+    end;
+
+    procedure ClearVertexData(vertData: TwbNifBlock);
+    var
+        vert: TwbNifBlock;
+    begin
+        // vertData.Clear; // nope
+        // added := vertData.Add(); // this works. I think it also returns something
+        // try removing it
+        //vertData.Remove();
+        // added.remove(); // this works
+
+        while vertData.count > 0 do begin
+            vert := vertData[0];
+            vert.remove();
+        end;
     end;
 
     procedure writeNif();
@@ -918,7 +1317,6 @@ unit WorkshopBorder;
     begin
         // I do not know how to properly create the nif from scratch, so I'm going to create it as JSON, then convert it.
         nifJson := createNifBase();
-
         //nifJson.
         Nif := TwbNifFile.Create;
         //AddMessage('out nif as string='+nifJson.toString());
@@ -929,29 +1327,32 @@ unit WorkshopBorder;
 
 
         vertexData := triShapeBlock.Elements['Vertex Data'];
-        // vertexData := triShapeBlock.
-        // Nif.CreateElement(triShapeBlock) ?? or, what is TdfElement?
-        // vertexData := triShapeBlock.AddProperty('Vertex Data');
-        //AddMessage('have vertexData? '+BoolToStr(assigned(vertexData)));
         Triangles := triShapeBlock.Elements['Triangles'];
-        //AddMessage('have Triangles? '+BoolToStr(assigned(Triangles)));
+
+        // direct nif object code
+
+        ClearVertexData(vertexData);
+        ClearTriangleData(Triangles);
+
+        for i:=0 to currentPolygon.A['edges'].count-1 do begin
+            curEdge := currentPolygon.A['edges'].O[i];
+            writeEdgeToNif(curEdge, vertexData, Triangles, false);
+            writeEdgeToNif(curEdge, vertexData, Triangles, true);
+        end;
 
 
-        // triShapeJson := triShapeBlock.toJson(triShapeBlock);
+        {
+        //JSON code
         vertexDataJson := TJsonObject.parse(vertexData.toJson(vertexData));
         trianglesJson := TJsonObject.parse(Triangles.toJson(Triangles));
-        //vertexDataJson := vertexData.toJson(vertexData);
-        //trianglesJson := Triangles.toJson(Triangles);
-
-        //AddMessage('vertexDataJson='+vertexDataJson.toString());
 
         vertexDataJson.clear();
         trianglesJson.clear();
 
         for i:=0 to currentPolygon.A['edges'].count-1 do begin
             curEdge := currentPolygon.A['edges'].O[i];
-            writeEdgeToNif(curEdge, vertexDataJson.A['Vertex Data'], trianglesJson.A['Triangles'], false);
-            writeEdgeToNif(curEdge, vertexDataJson.A['Vertex Data'], trianglesJson.A['Triangles'], true);
+            writeEdgeToNifJson(curEdge, vertexDataJson.A['Vertex Data'], trianglesJson.A['Triangles'], false);
+            writeEdgeToNifJson(curEdge, vertexDataJson.A['Vertex Data'], trianglesJson.A['Triangles'], true);
         end;
 
         vertexData.fromJson(vertexDataJson.toString());
@@ -959,11 +1360,15 @@ unit WorkshopBorder;
 
         triShapeBlock.EditValues['Num Triangles'] := trianglesJson.A['Triangles'].count;
         triShapeBlock.EditValues['Num Vertices'] := vertexDataJson.A['Vertex Data'].count;
+        }
+
+
+
+
+        triShapeBlock.EditValues['Num Triangles'] := Triangles.count;
+        triShapeBlock.EditValues['Num Vertices'] := vertexData.count;
 
         triShapeBlock.UpdateBounds();
-
-        //triShapeJson.S['Num Triangles'] := triShapeJson.A['Triangles'].count;
-        //triShapeJson.S['Num Vertices'] := triShapeJson.A['Vertex Data'].count;
 
         // https://github.com/TES5Edit/TES5Edit/blob/6a6b9ca787ec1e89f2d634a954cc5b87a7a3630e/Core/wbDataFormatNif.pas#L144
         // UpdateBounds, UpdateNormals, UpdateTangents might work. might be functions of TriShape
@@ -1540,6 +1945,7 @@ unit WorkshopBorder;
         boxPosAdj, curPoly, newPoly: TJsonObject;
 
         points, edges: TJsonArray;
+        boxDownSize: float;
     begin
         if(GetElementEditValues(boxRef, 'XPRM\Type') <> 'Box') then begin
             AddMessage('Can only process boxes so far: '+FullPath(boxRef));
@@ -1562,6 +1968,13 @@ unit WorkshopBorder;
 
         boxPos := getPositionVector(boxRef, 'DATA');
         boxPosAdj := VectorSubtract(boxPos, wsOrigin);
+
+
+        boxDownSize := boxPosAdj.F['z'] - ( boxSize.F['z'] /2);
+
+        if(boxDownSize < wsMinHeight) then begin
+            wsMinHeight := boxDownSize;
+        end;
 
         boxPosAdj.F['z'] := 0;
 
@@ -1678,6 +2091,16 @@ unit WorkshopBorder;
             point1.F['z'] := getTerrainHeight(wsX + point1.F['x'], wsY + point1.F['y'], worldSpace) - wsZ;
             point2.F['z'] := getTerrainHeight(wsX + point2.F['x'], wsY + point2.F['y'], worldSpace) - wsZ;
 
+            // gather data for this
+            if (flattenBottomEdge) then begin
+                if((point1.F['z']-borderDownHeight) < borderMinHeight) then begin
+                    borderMinHeight := point1.F['z'] - borderDownHeight;
+                end;
+                if((point2.F['z']-borderDownHeight) < borderMinHeight) then begin
+                    borderMinHeight := point2.F['z'] - borderDownHeight;
+                end;
+            end;
+
             addIntermediatePoints(worldSpace, point1, point2, newPolygon.A['edges'], wsX, wsY, wsZ);
 
             point1.free();
@@ -1742,6 +2165,7 @@ unit WorkshopBorder;
 		editOutput, editHeightTop, editHeightBottom, editPrecision, editTolerance: TLabeledEdit;
         resultCode: cardinal;
         cacheLabel: TLabel;
+        cbExtendToBottom, cbUseWaterHeight, cbSoftBottomEdge, cbFlattenBottomEdge: TCheckBox;
     begin
         Result := false;
         frm := CreateDialog('Generate Workshop Border', 450, 300);
@@ -1764,6 +2188,26 @@ unit WorkshopBorder;
         editPrecision := CreateLabelledInput(frm, 10, 140, 160, 50, 'Height Precision', FloatToStr(borderPrecision));
         editTolerance := CreateLabelledInput(frm, 200, 140, 160, 50, 'Height Tolerance', FloatToStr(heightTolerance));
 
+        {
+        extendToBottom
+        useWaterHeight
+        softBottomEdge
+        flattenBottomEdge
+        }
+        cbExtendToBottom := CreateCheckbox(frm, 10, 180, 'Extend to Bottom of Build Area');
+        cbExtendToBottom.checked := extendToBottom;
+
+        cbUseWaterHeight := CreateCheckbox(frm, 200, 180, 'Use Cell Water Height');
+        cbUseWaterHeight.checked := useWaterHeight;
+
+        cbSoftBottomEdge := CreateCheckbox(frm, 10, 200, 'Soft Bottom Edge');
+        cbSoftBottomEdge.checked := softBottomEdge;
+
+        cbFlattenBottomEdge := CreateCheckbox(frm, 200, 200, 'Flatten Bottom Edge');
+        cbFlattenBottomEdge.checked := flattenBottomEdge;
+
+
+{
         cacheLabel := CreateLabel(frm, 10, 174, 'Cell Cache Empty');
         cacheLabel.Name := 'cacheLabel';
         btnClearCache := CreateButton(frm, 200, 170, 'Clear Cell Cache');
@@ -1775,9 +2219,11 @@ unit WorkshopBorder;
             btnClearCache.enabled := true;
             cacheLabel.Text := 'Cell Cache Loaded';
         end;
+}
 
-        btnOk     := CreateButton(frm, 130, 210, '  OK  ');
-        btnCancel := CreateButton(frm, 210, 210, 'Cancel');
+
+        btnOk     := CreateButton(frm, 130, 240, '  OK  ');
+        btnCancel := CreateButton(frm, 210, 240, 'Cancel');
 
         btnOk.Default := true;
         btnOk.ModalResult := mrYes;
@@ -1798,6 +2244,11 @@ unit WorkshopBorder;
             borderPrecision := StrToFloat(editPrecision.Text);
             borderDownHeight := StrToFloat(editHeightBottom.Text);
             heightTolerance := StrToFloat(editTolerance.Text);
+
+            extendToBottom := cbExtendToBottom.checked;
+            useWaterHeight := cbUseWaterHeight.checked;
+            softBottomEdge := cbSoftBottomEdge.checked;
+            flattenBottomEdge := cbFlattenBottomEdge.checked;
 
             saveNifAs := trim(editOutput.Text);
             if(saveNifAs <> '') then begin
@@ -1839,7 +2290,7 @@ unit WorkshopBorder;
         end;
 
         boxes := getLinkedRefChildren(wsRef, primitiveLinkKw);
-        if(boxes.count = 0) then begin,
+        if(boxes.count = 0) then begin
             if(debugMode) then begin
                 AddMessage('Found no building area boxes, nothing to do.');
             end;
@@ -1851,6 +2302,8 @@ unit WorkshopBorder;
             exit;
         end;
         wsOrigin := getPositionVector(wsRef, 'DATA');
+        wsMinHeight := wsOrigin.F['z'] + 900000;
+        borderMinHeight := wsMinHeight;
 
         currentPolygon := TJsonObject.create;
 
@@ -1870,6 +2323,8 @@ unit WorkshopBorder;
         //cacheWorldspaceCells(worldSpace);
         AddMessage('Adding Terrain Height');
         addTerrainHeight(wsRef, worldSpace);
+
+
 
         AddMessage('Writing NIF');
         writeNif();
