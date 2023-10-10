@@ -13,31 +13,84 @@
         - Border Depth:
                             Determines how far down the border sinks below the terrain. This helps to cover up the imperfections.
                             Default: 128
-        - Height Precision:
-                            Determines how close the border follows the terrain vertically, lower = closer, higher = looser.
-                            The value is the distance between intermediate points along a border segment, a lower value means more points will be created.
-                            The distance between the vertices in a cell's heigtmap is 128, so there is probably no need to set it to anything lower.
+        - Step Size:
+                            Determines how many intermediate points the script creates along the border.
+                            Smaller step size means more intermediate points are created, with less distance in-between, meaning the border will follow the terrain more closely.
+                            Higher step size means less intermediate points are created, with more distance in-between, meaning the border will follow the terrain less closely.
+                            The distance between the vertices in a cell's heigtmap is 128, so there is probably no need to set this to anything lower.
                             No intermediate points will be created across "flat" terrain.
                             Default: 128
         - Height Tolerance:
                             Determines what "flat" means in regard of the above setting.
-                            Height differences below this value will be considered equal.
-                            Default: 8
+                            Height differences below this value will be considered equal, and no intermediate points are created if the current step's height is equal to the previous value.
+                            Default: 16
 
         - Extend to Bottom of Build Area:
                             The border will extend downwards to the lowest point of the Workshop's build area at least.
+                            Default: true
 
         - Use Cell Water Height:
                             If the cell's water height (not any water planes!) is above the terrain, it will be used instead of the terrain height.
+                            Default: true
 
         - Soft Bottom Edge:
                             The bottom edge of the border will fade out, like the top edge. It will be solid color otherwise.
+                            Might be useful together with "Use Cell Water Height": false and "Extend to Bottom of Build Area": false
+                            Default: false
 
         - Flatten Bottom Edge:
                             The border will extend downwards to it's lowest point.
+                            Default: false
+
+        - Full Precision:
+                            The border mesh will be generated with Full Precision vertices.
+                            The coordinates of Full Precision meshes are more exact, but they cannot be part of SCOLs.
+                            Default: false
+
+        - Auto Output File:
+                            If enabled, the script will try to pre-fill the "Output File" field, based on the Workshop's EditorID and/or location.
+                            If checked while the UI is open and the "Output File" field is empty, it will be auto-filled as well.
+                            The path will be something like "Fallout 4\Data\Meshes\WorkshopBorders\MyWorkshopRef.nif"
+                            Default: true
 
 
-    Special thanks to Jonathan Ostrus for the code to parse exterior cell's terrain
+        - Height Override Marker (Editor ID):
+                            Editor ID of an Activator base form which should be considered as the "Height Override Markers". If left open, this feature isn't used.
+                            See below for explanation.
+                            Default: n/a
+
+    Using Height Override Markers:
+        You can place "Height Override Markers" along the build area edge, to override the terrain's height in certain places,
+        where certain static objects extend too high above the terrain, for example.
+
+        Howto:
+            1. Create a new Activator without any model (easiest way: make a copy of DefaultEmptyTrigger).
+                Note the EditorID of this new Activator.
+            2. Place as many instances of this Activator as needed along the edge of the build area. They should appear as box primitives.
+                Position these boxes in such a way, that the bottom faces are where you want the height to be.
+            3. When running the script, put the EditorID from Step 1 into the field "Height Override Marker (Editor ID)".
+
+        Notes:
+            - You may position or rotate the boxes on the Z axis without any restrictions.
+            - For resizing, make sure the box doesn't have zero size in any dimension, such boxes will be skipped.
+            - For rotating along the X or Y axes, do not rotate it by 90° or more. This might cause unexpected behavior.
+            - If two or more boxes overlap, the script will just pick one or the other, without any guarantee which gets picked when.
+            - The border will not necessarily be aligned with the boxes. The script will
+
+    "Hidden" Settings:
+        These settings are not exposed in the UI, but can be changed in the config JSON:
+
+            - debugMode (boolean):
+                        If true, the script will output more messages, and also generate some SVG files in the Edit Scripts directory
+                        Default: false
+
+            - autoPathBase (string):
+                        Used to generate the path if "Auto Output File" is enabled.
+                        Will be appended to the game's Data path.
+                        You MUST use two \\ instead of one here!
+                        Default: "Meshes\\WorkshopBorders\\"
+
+    Special thanks to Jonathan Ostrus for the code to parse exterior cell's terrain.
 }
 unit WorkshopBorder;
     uses praUtil;
@@ -61,6 +114,8 @@ unit WorkshopBorder;
         vertexColorGreen = '#00C000FF';
         uvTop = '0.875000 0.171875';
         uvBottom = '0.125000 0.828125';
+        FLAG_FULL_PREC = 16384;
+        DEFAULT_AUTO_PATH_BASE = 'Meshes\WorkshopBorders\';
 
 
 
@@ -70,7 +125,9 @@ unit WorkshopBorder;
         borderPrecision: float;
         borderDownHeight: float;
         primitiveLinkKw: IInterface;
+        currentGuiWorkshopRef: IInterface;
 
+        helperBoxes: TJsonObject;
         cellHeights: TJsonObject;
         wsOrigin: TJsonObject;
         wsMinHeight: float;
@@ -85,6 +142,10 @@ unit WorkshopBorder;
         useWaterHeight: boolean;
         softBottomEdge: boolean;
         flattenBottomEdge: boolean;
+        autoOutputFile: boolean;
+        doFullPrec: boolean;
+        heightHelperBoxEdid: string;
+        autoPathBase: string;
 
     procedure loadConfig();
     var
@@ -100,6 +161,10 @@ unit WorkshopBorder;
         useWaterHeight := true;
         softBottomEdge := false;
         flattenBottomEdge := false;
+        autoOutputFile := true;
+        doFullPrec := false;
+        heightHelperBoxEdid := '';
+        autoPathBase := DEFAULT_AUTO_PATH_BASE;
 
         if(not FileExists(configFileName)) then exit;
         configFile := TJsonObject.create();
@@ -114,12 +179,17 @@ unit WorkshopBorder;
         extendToBottom      := getJsonObjectValueVariant(configFile, 'extendToBottom', extendToBottom);
         useWaterHeight      := getJsonObjectValueVariant(configFile, 'useWaterHeight', useWaterHeight);
         softBottomEdge      := getJsonObjectValueVariant(configFile, 'softBottomEdge', softBottomEdge);
-        flattenBottomEdge      := getJsonObjectValueVariant(configFile, 'flattenBottomEdge', flattenBottomEdge);
+        flattenBottomEdge   := getJsonObjectValueVariant(configFile, 'flattenBottomEdge', flattenBottomEdge);
+        autoOutputFile      := getJsonObjectValueVariant(configFile, 'autoOutputFile', autoOutputFile);
+        doFullPrec          := getJsonObjectValueVariant(configFile, 'doFullPrec', doFullPrec);
+        heightHelperBoxEdid := trim(getJsonObjectValueVariant(configFile, 'heightHelperBoxEdid', heightHelperBoxEdid));
+        autoPathBase        := trim(getJsonObjectValueVariant(configFile, 'autoPathBase', autoPathBase));
 
-        if(borderHeight = 0) then borderHeight := 256;
-        if(borderPrecision = 0) then borderPrecision := 128;
-        if(borderDownHeight = 0) then borderDownHeight := 128;
-        if(heightTolerance = 0) then heightTolerance := 16;
+        if(borderHeight <= 0) then borderHeight := 256;
+        if(borderPrecision <= 0) then borderPrecision := 128;
+        if(borderDownHeight <= 0) then borderDownHeight := 128;
+        if(heightTolerance <= 0) then heightTolerance := 16;
+        if(autoPathBase = '') then autoPathBase := DEFAULT_AUTO_PATH_BASE;
 
         configFile.free();
     end;
@@ -138,6 +208,10 @@ unit WorkshopBorder;
         configFile.B['useWaterHeight'] := useWaterHeight;
         configFile.B['softBottomEdge'] := softBottomEdge;
         configFile.B['flattenBottomEdge'] := flattenBottomEdge;
+        configFile.B['autoOutputFile'] := autoOutputFile;
+        configFile.B['doFullPrec'] := doFullPrec;
+        configFile.S['heightHelperBoxEdid'] := heightHelperBoxEdid;
+        configFile.S['autoPathBase'] := autoPathBase;
 
         configFile.SaveToFile(configFileName, false);
         configFile.free();
@@ -544,10 +618,10 @@ unit WorkshopBorder;
         waterHeight, landHeightScaled: float;
     begin
         Result := TJsonObject.create;
-        cell := getWorldspaceCell(worldSpace, cellX, cellY, false);
+        cell := getWorldspaceCell(worldSpace, cellX, cellY);
         if(not assigned(cell)) then begin
             AddMessage('ERROR! Found no cell!');
-            // todo: something
+            AddMessage('You can try deleting ' + cellCacheFileName);
             exit;
         end;
 
@@ -598,7 +672,7 @@ unit WorkshopBorder;
                     // otherwise, just keep incrementing
                     landValue := landValue + curVal;
                 end;
-                
+
                 landHeightScaled := landValue * SCALE_FACTOR_TERRAIN;
 
                 if(useWaterHeight) then begin
@@ -621,6 +695,91 @@ unit WorkshopBorder;
         // AddMessage('Found land: '+FullPath(land));
     end;
 
+    function getHeightFrom3points(point1, point2, point3: TJsonObject; atX, atY: float): TJsonObject;
+    var
+        s, t, det: float;
+    begin
+        Result := nil;
+        // plane equation: X = A + s * (B-A) + t * (C-A)
+
+        // atX = x1 + s * (x2 - x1) + t * (x3 - x1)
+        // atY = y1 + s * (y2 - y1) + t * (y3 - y1)
+        // atZ = z1 + s * (z2 - z1) + t * (z3 - z1)
+
+        // (atX - x1 - s * (x2 - x1))/(x3 - x1) = t
+        // (atY - y1 - s * (y2 - y1))/(y3 - y1) = t
+        // (atX - x1 - s * (x2 - x1))/(x3 - x1) = (atY - y1 -  s * (y2 - y1))/(y3 - y1)
+        // (atX - x1 - s * (x2 - x1))*(y3 - y1) = (atY - y1 -  s * (y2 - y1))*(x3 - x1)
+
+        // atX*(y3 - y1) - x1*(y3 - y1) - s*(x2 - x1)*(y3 - y1) = atY*(x3 - x1) - y1*(x3 - x1) -  s*(y2 - y1)*(x3 - x1)
+
+        //    s*(y2 - y1)*(x3 - x1) - s*(x2 - x1)*(y3 - y1) = atY*(x3 - x1) - y1*(x3 - x1)  - atX*(y3 - y1) + x1*(y3 - y1)
+
+        //    s*((y2 - y1)*(x3 - x1) - (x2 - x1)*(y3 - y1)) = atY*(x3 - x1) - y1*(x3 - x1) - atX*(y3 - y1) + x1*(y3 - y1)
+
+        // damn I hope I didn't make any mistake...
+
+        //    s = (atY*(x3 - x1) - y1*(x3 - x1) - atX*(y3 - y1) + x1*(y3 - y1))/((y2 - y1)*(x3 - x1) - (x2 - x1)*(y3 - y1))
+        det := ((point2.F['y'] - point1.F['y'])*(point3.F['x'] - point1.F['x']) - (point2.F['x'] - point1.F['x'])*(point3.F['y'] - point1.F['y']));
+        if(det = 0) then begin
+            AddMessage('ERROR: division by zero while processing a height override box! This shouldn''t happen...');
+            //Result := getHeightFrom3pointsAlt(point1, point2, point3, atX, atY);
+            exit;
+        end;
+        s := (atY*(point3.F['x'] - point1.F['x']) - point1.F['y']*(point3.F['x'] - point1.F['x']) - atX*(point3.F['y'] - point1.F['y']) + point1.F['x']*(point3.F['y'] - point1.F['y']))/det;
+        // I think division by zero shouldn't happen, as I made sure the boxes don't have zero-size
+        t := (atX - point1.F['x'] - s * (point2.F['x'] - point1.F['x']))/(point3.F['x'] - point1.F['x']);
+
+        // finally
+        Result := TJsonObject.create;
+        Result.F['z'] := point1.F['z'] + s * (point2.F['z'] - point1.F['z']) + t * (point3.F['z'] - point1.F['z']);
+        //AddMessage('Found this: '+FloatToStr(Result.F['z']));
+    end;
+
+    function getHelperBoxHeight(globalX, globalY: float; worldSpace: IInterface): TJsonObject;
+    var
+        wsKey: string;
+        edges, wsEntry, box: TJsonObject;
+        i: integer;
+        pointsArray, edgesArray: TJsonArray;
+    begin
+
+
+        // wrapping in a json object so I can tell 0 from none
+        Result := nil;
+
+        wsKey := FormToAbsStr(worldSpace);
+        wsEntry := helperBoxes.O['worldspaces'].A[wsKey];
+        // helperBoxes
+        for i:=0 to wsEntry.count-1 do begin
+            box := wsEntry.O[i];
+            pointsArray := box.A['points'];
+            {    y
+                 ^
+             4   |   1
+                 |
+            -----+-----> x
+                 |
+             3   |   2
+            }
+            {
+            // we don't even need all 4
+            point1 := pointsArray.O[0];
+            point2 := pointsArray.O[1];
+            point3 := pointsArray.O[2];
+            point4 := pointsArray.O[3];
+            }
+            // TODO: add bounding box test as a pre-check
+
+            if(isPointInPolygonEdges(box.A['edges'], globalX, globalY)) then begin
+                Result := getHeightFrom3points(pointsArray.O[0], pointsArray.O[1], pointsArray.O[2], globalX, globalY);
+
+            end;
+
+            if(assigned(Result)) then exit;
+        end;
+    end;
+
     function getTerrainHeight(globalX, globalY: float; worldSpace: IInterface): float;
     var
         cellX, cellY: integer; // cell grid coords
@@ -629,7 +788,18 @@ unit WorkshopBorder;
         cellGlobalX, cellGlobalY: float;
         cellHeightmap: TJsonObject;
         indexX, indexY, indexTerrainX, indexTerrainY: string;
+        boxHeight: TJsonObject;
     begin
+        // should the helperbox override the terrain, or only count if it's > than terrain?
+        boxHeight := getHelperBoxHeight(globalX, globalY, worldSpace);
+
+        if(boxHeight <> nil) then begin
+            Result := boxHeight.F['z'];
+            boxHeight.free();
+            exit;
+        end;
+
+
         // cellHeights
         cellX := getGridCoord(globalX);
         cellY := getGridCoord(globalY);
@@ -644,11 +814,10 @@ unit WorkshopBorder;
         terrainX := getLandGridCoord(localX);
         terrainY := getLandGridCoord(localY);
 
-        //AddMessage('From Global ('+FloatToStr(globalX)+'/'+FloatToStr(globalY)+'), got cell=('+IntToStr(cellX)+'/'+IntToStr(cellY)+'), local=('+FloatToStr(localX)+'/'+FloatToStr(localY)+'), terrain=('+IntToStr(terrainX)+'/'+IntToStr(terrainY)+'), cell global=('+FloatToStr(cellGlobalX)+'/'+FloatToStr(cellGlobalY)+')');
 
         indexX := IntToStr(cellX);
         indexY := IntToStr(cellY);
-        //decompilerCache.Types[scriptKey] = JSON_TYPE_OBJECT
+
         if(cellHeights.O[indexX].Types[indexY] <> JSON_TYPE_OBJECT) then begin
             // fill
             AddMessage('Loading terrain from '+IntToStr(cellX)+'/'+IntToStr(cellY));
@@ -664,8 +833,6 @@ unit WorkshopBorder;
         indexTerrainY := IntToStr(terrainY);
 
         Result := (cellHeights.O[indexX].O[indexY].O[indexTerrainX].F[indexTerrainY]);
-        //Result := cellHeights.O[indexX].O[indexY].O[indexTerrainY].F[indexTerrainX];
-        // cellHeights.O[IntToStr(cellX)].O[IntToStr(cellY)]
     end;
 
     function getCachedCell(worldSpace: IInterface; gridX, gridY: integer): IInterface;
@@ -677,7 +844,6 @@ unit WorkshopBorder;
         wsKey := FormToAbsStr(worldSpace);
         Result := nil;
         if (worldspaceCellCache.Types[wsKey] <> JSON_TYPE_OBJECT) then begin
-            // AddMessage('cachedType='+IntToStr(worldspaceCellCache.Types[wsKey]));
             // haven't cached this worldspace yet
             AddMessage('Caching WorldSpace '+FullPath(worldSpace));
             cacheWorldspaceCells(worldSpace);
@@ -687,13 +853,6 @@ unit WorkshopBorder;
         cellKey := worldspaceCellCache.O[wsKey].O[IntToStr(gridX)].S[IntToStr(gridY)];
         if(cellKey = '') then exit;
         Result := AbsStrToForm(cellKey);
-        {
-        key := IntToStr(gridX)+'_'+IntToStr(gridY);
-        i := cellCache.indexOf(key);
-        if(i < 0) then exit;
-
-        Result := ObjectToElement(cellCache.Objects[i]);
-        }
     end;
 
     procedure setCachedCell(worldSpace: IInterface; gridX, gridY: integer; cell: IInterface);
@@ -707,16 +866,7 @@ unit WorkshopBorder;
 
         wsKey := FormToAbsStr(worldSpace);
 
-        // if(worldspaceCellCache.O[wsKey].O[IntToStr(gridX)].Types[IntToStr(gridY)] = JSON_TYPE_STRING)
-
         worldspaceCellCache.O[wsKey].O[IntToStr(gridX)].S[IntToStr(gridY)] := FormToAbsStr(cell);
-
-
-        //key := IntToStr(gridX)+'_'+IntToStr(gridY);
-        //i := cellCache.indexOf(key);
-        //if(i >= 0) then exit;
-
-        //cellCache.AddObject(key, cell);
     end;
 
 
@@ -755,7 +905,7 @@ unit WorkshopBorder;
     end;
 
 
-    function getWorldspaceCell(ws: IInterface; gridX, gridY: integer; createIfMissing: boolean): IInterface;
+    function getWorldspaceCell(ws: IInterface; gridX, gridY: integer): IInterface;
     var
         i, x, y: integer;
         cell: IInterface;
@@ -768,38 +918,7 @@ unit WorkshopBorder;
             Result := cell;
             exit;
         end;
-        AddMessage('ERROR FAILED');
-        {
-        //AddMessage('Trying to find in ws='+fullPath(watTest)+' cell '+IntToStr(gridX)+'/'+IntToStr(gridY));
-        Result := nil;
-        wrldgrup := ChildGroup(watTest); // WTF this doesn't work
-        //AddMessage('Do we have worldgrup? '+BoolToStr(assigned(wrldgrup)));
-        for blockidx := 0 to ElementCount(wrldgrup)-1 do begin
-            block := ElementByIndex(wrldgrup, blockidx);
-            //AddMessage('Checking Block #'+IntToStr(blockidx));
-            // traverse SubBlocks
-            for subblockidx := 0 to ElementCount(block)-1 do begin
-                // AddMessage('Checking SubBlock #'+IntToStr(subblockidx));
-                subblock := ElementByIndex(block, subblockidx);
-                // traverse Cells
-                for cellidx := 0 to ElementCount(subblock)-1 do begin
-                    cell := ElementByIndex(subblock, cellidx);
-                    x := getElementNativeValues(cell, 'XCLC\X');
-                    y := getElementNativeValues(cell, 'XCLC\Y');
-                    // AddMessage('Checking cell '+IntToStr(x)+'/'+IntToStr(y));
-                    setCachedCell(x, y, cell);
-                    if(x = gridX) and (y = gridY) then begin
-                        Result := cell;
-                        exit;
-                    end;
-                end;
-            end;
-        end;
-
-        if(createIfMissing) then begin
-            Result := Add(ws, 'CELL['+IntToStr(gridX)+','+IntToStr(gridY)+']', true);
-        end;
-        }
+        AddMessage('ERROR: FAILED to get cell '+IntToStr(gridX)+'/'+IntToStr(gridY)+' in worldspace '+FullPath(ws);
     end;
 
     {
@@ -856,17 +975,7 @@ unit WorkshopBorder;
     var
         numInt: integer;
     begin
-        // numInt := worldCoord;
-
         Result := gridCoord * 4096.0;
-
-        {
-        if(gridCoord < 0) then begin
-            Result := getGridCoordInverse((1 - (gridCoord+1))) * -1;
-        end else begin
-            Result := gridCoord shl 12;
-        end;
-        }
     end;
 
     function writeVertex(x, y, z: float; isTop, isInner: boolean; vertData: TwbNifBlock): TwbNifBlock;
@@ -875,7 +984,10 @@ unit WorkshopBorder;
     begin
         Result := vertData.Add();
         Result.EditValues['Vertex'] := formatFloatForNif(x)+' '+formatFloatForNif(y)+' '+formatFloatForNif(z);
-        // writeVertexCoords(x, y, z, Result); // not sure if my bit-fuckery is any faster than xedit's own sting to half-prec float, and I might have made a mistake
+        // not sure if my bit-fuckery is any faster than xedit's own sting to half-prec float, and I might have made a mistake
+        // surprisingly, this function seems to generate the same vertex coordinates as xEdit's own half-prec float conversion
+        // writeHalfPrecVertexCoordsManually(x, y, z, Result);
+
 
         if(isTop) then begin
             Result.EditValues['UV'] := uvTop;
@@ -907,19 +1019,16 @@ unit WorkshopBorder;
        baseZb, bottomZb, topZb: float;
     begin
         // 2 tris, 4 vertices
-        // how do I determine which way they face?
         // let's draw like this:
         {
-            3---4
+            3---4 <- Top
             | \ |
-            1---2
+            1---2 <- Baseline
             | \ |
-            5---6
+            5---6 <- Bottom
+            ^   ^
             A   B
         }
-        // with the tris being 1 2 3 and 2 4 3
-        //vertData := triShape.A['Vertex Data'];
-        //triData := triShape.A['Triangles'];
 
         iVert1 := vertData.count;
         iVert2 := iVert1 + 1;
@@ -987,93 +1096,6 @@ unit WorkshopBorder;
     function formatFloatForNif(f: float): string;
     begin
         Result := FormatFloat('0.000000', f);
-        //Result := FormatFloat('0.000', f);
-    end;
-
-
-
-    function writeVertexJson(x, y, z: float; isTop, isInner: boolean; vertData: TJsonArray): TJsonObject;
-    begin
-        Result := vertData.addObject();
-        Result.S['Vertex'] := formatFloatForNif(x)+' '+formatFloatForNif(y)+' '+formatFloatForNif(z);
-        // AddMessage(Result.S['Vertex']);
-        if(isTop) then begin
-            Result.S['UV'] := uvTop;
-            Result.S['Vertex Colors'] := vertexColorTop;
-        end else begin
-            Result.S['UV'] := uvBottom;
-            if(isInner) then begin
-                Result.S['Vertex Colors'] := vertexColorGreen;
-            end else begin
-                Result.S['Vertex Colors'] := vertexColorRed;
-            end;
-        end;
-    end;
-
-    procedure writeEdgeToNifJson(edge, vertData, triData: TJsonArray; reverse: boolean);
-    var
-        iVert1, iVert2, iVert3, iVert4, iVert5, iVert6: integer;
-       // vertData, triData: TJsonObject;
-       isInner: boolean;
-    begin
-        // 2 tris, 4 vertices
-        // how do I determine which way they face?
-        // let's draw like this:
-        {
-            3---4
-            | \ |
-            1---2
-            | \ |
-            5---6
-            A   B
-        }
-        // with the tris being 1 2 3 and 2 4 3
-        //vertData := triShape.A['Vertex Data'];
-        //triData := triShape.A['Triangles'];
-
-        iVert1 := vertData.count;
-        iVert2 := iVert1 + 1;
-        iVert3 := iVert2 + 1;
-        iVert4 := iVert3 + 1;
-        iVert5 := iVert4 + 1;
-        iVert6 := iVert5 + 1;
-
-        isInner := not reverse;
-
-        // 1, a mid
-        writeVertexJson(edge.O['a'].F['x'], edge.O['a'].F['y'], edge.O['a'].F['z'] + 0, false, isInner, vertData);
-        // 2, b mid
-        writeVertexJson(edge.O['b'].F['x'], edge.O['b'].F['y'], edge.O['b'].F['z'] + 0, false, isInner, vertData);
-        // 3, a top
-        writeVertexJson(edge.O['a'].F['x'], edge.O['a'].F['y'], edge.O['a'].F['z'] + borderHeight, true, isInner, vertData);
-        // 4, b top
-        writeVertexJson(edge.O['b'].F['x'], edge.O['b'].F['y'], edge.O['b'].F['z'] + borderHeight, true, isInner, vertData);
-        // 5, a bottom
-        writeVertexJson(edge.O['a'].F['x'], edge.O['a'].F['y'], edge.O['a'].F['z'] - borderDownHeight, false, isInner, vertData);
-        // 6, b bottom
-        writeVertexJson(edge.O['b'].F['x'], edge.O['b'].F['y'], edge.O['b'].F['z'] - borderDownHeight, false, isInner, vertData);
-
-        if(not reverse) then begin
-            // write tris
-            // 1 2 3
-            triData.Add(IntToStr(iVert1)+' '+IntToStr(iVert2)+' '+IntToStr(iVert3));
-            // 2 4 3
-            triData.Add(IntToStr(iVert2)+' '+IntToStr(iVert4)+' '+IntToStr(iVert3));
-            // 5 6 1
-            triData.Add(IntToStr(iVert5)+' '+IntToStr(iVert6)+' '+IntToStr(iVert1));
-            // 6 2 1
-            triData.Add(IntToStr(iVert6)+' '+IntToStr(iVert2)+' '+IntToStr(iVert1));
-        end else begin
-            // 1 3 2
-            triData.Add(IntToStr(iVert1)+' '+IntToStr(iVert3)+' '+IntToStr(iVert2));
-            // 3 4 2
-            triData.Add(IntToStr(iVert3)+' '+IntToStr(iVert4)+' '+IntToStr(iVert2));
-            // 5 1 6
-            triData.Add(IntToStr(iVert5)+' '+IntToStr(iVert1)+' '+IntToStr(iVert6));
-            // 6 1 2
-            triData.Add(IntToStr(iVert6)+' '+IntToStr(iVert1)+' '+IntToStr(iVert2));
-        end;
-
     end;
 
     function assembleHalfPrec(sgn, exp, val: cardinal): cardinal;
@@ -1170,13 +1192,13 @@ unit WorkshopBorder;
         Result := sign * Power(2, exponent) * (x + val/1024);
     end;
 
-    procedure writeVertexCoords(x, y, z: float; vertex: TwbNifBlock);
+    procedure writeHalfPrecVertexCoordsManually(x, y, z: float; vertex: TwbNifBlock);
     var
         encX, encY, encZ: cardinal;
         encXM, encXL, encYM, encYL, encZM, encZL: float;
         something: variant;
     begin
-        AddMessage(IntToStr(floatToHalfPrec(x)));
+        // AddMessage(IntToStr(floatToHalfPrec(x)));
         encX := floatToHalfPrec(x);
         encY := floatToHalfPrec(y);
         encZ := floatToHalfPrec(z);
@@ -1294,11 +1316,6 @@ unit WorkshopBorder;
     var
         vert: TwbNifBlock;
     begin
-        // vertData.Clear; // nope
-        // added := vertData.Add(); // this works. I think it also returns something
-        // try removing it
-        //vertData.Remove();
-        // added.remove(); // this works
 
         while vertData.count > 0 do begin
             vert := vertData[0];
@@ -1311,20 +1328,19 @@ unit WorkshopBorder;
         Nif : TwbNifFile;
         nifJson, triShapeJson, vertexDataJson, trianglesJson: TJsonObject;
 
-        triShapeBlock, vertexData, Triangles: TwbNifBlock;
+        triShapeBlock, vertexData, Triangles, vertexDesc: TwbNifBlock;
         curEdge: TJsonObject;
         i: integer;
+        nifDir: string;
     begin
-        // I do not know how to properly create the nif from scratch, so I'm going to create it as JSON, then convert it.
+
         nifJson := createNifBase();
-        //nifJson.
+
         Nif := TwbNifFile.Create;
         //AddMessage('out nif as string='+nifJson.toString());
         Nif.FromJson(nifJson.toString());
 
         triShapeBlock := Nif.BlockByName('Border');
-        //AddMessage('have triShapeBlock? '+BoolToStr(assigned(triShapeBlock)));
-
 
         vertexData := triShapeBlock.Elements['Vertex Data'];
         Triangles := triShapeBlock.Elements['Triangles'];
@@ -1333,37 +1349,16 @@ unit WorkshopBorder;
 
         ClearVertexData(vertexData);
         ClearTriangleData(Triangles);
+        if (doFullPrec) then begin
+            vertexDesc := triShapeBlock.Elements['VertexDesc'];
+            vertexDesc.NativeValues['VF'] := (vertexDesc.NativeValues['VF'] or FLAG_FULL_PREC);
+        end;
 
         for i:=0 to currentPolygon.A['edges'].count-1 do begin
             curEdge := currentPolygon.A['edges'].O[i];
             writeEdgeToNif(curEdge, vertexData, Triangles, false);
             writeEdgeToNif(curEdge, vertexData, Triangles, true);
         end;
-
-
-        {
-        //JSON code
-        vertexDataJson := TJsonObject.parse(vertexData.toJson(vertexData));
-        trianglesJson := TJsonObject.parse(Triangles.toJson(Triangles));
-
-        vertexDataJson.clear();
-        trianglesJson.clear();
-
-        for i:=0 to currentPolygon.A['edges'].count-1 do begin
-            curEdge := currentPolygon.A['edges'].O[i];
-            writeEdgeToNifJson(curEdge, vertexDataJson.A['Vertex Data'], trianglesJson.A['Triangles'], false);
-            writeEdgeToNifJson(curEdge, vertexDataJson.A['Vertex Data'], trianglesJson.A['Triangles'], true);
-        end;
-
-        vertexData.fromJson(vertexDataJson.toString());
-        Triangles.fromJson(trianglesJson.toString());
-
-        triShapeBlock.EditValues['Num Triangles'] := trianglesJson.A['Triangles'].count;
-        triShapeBlock.EditValues['Num Vertices'] := vertexDataJson.A['Vertex Data'].count;
-        }
-
-
-
 
         triShapeBlock.EditValues['Num Triangles'] := Triangles.count;
         triShapeBlock.EditValues['Num Vertices'] := vertexData.count;
@@ -1377,6 +1372,16 @@ unit WorkshopBorder;
         nifJson.free();
         Nif.SpellAddUpdateTangents();
         Nif.SpellUpdateTangents();
+
+        // ensure path
+        nifDir := ExtractFilePath(saveNifAs);
+        if (not DirectoryExists(nifDir)) then begin
+            if (not ForceDirectories(nifDir)) then begin
+                AddMessage('ERROR: failed to create directory '+nifDir);
+                Nif.free();
+                exit;
+            end;
+        end;
 
         Nif.SaveToFile(saveNifAs);
         Nif.free();
@@ -1394,6 +1399,7 @@ unit WorkshopBorder;
         cellCache.Sorted := true;
 
         cellHeights := TJsonObject.create;
+        helperBoxes := TJsonObject.create;
         worldspaceCellCache := TJsonObject.create;
         loadCellCache();
 
@@ -1725,6 +1731,7 @@ unit WorkshopBorder;
         Result := sqrt(getPointDistanceSq(p1, p2));
     end;
 
+    // run this twice, with different order of arguments, to generate two halves, then merge
     procedure mergePolygonsHalf(poly1, poly2, outPoly: TJsonObject);
     var
         i: integer;
@@ -1735,7 +1742,6 @@ unit WorkshopBorder;
         if(debugMode) then begin
             AddMessage('mergePolygonsHalf BEGIN');
         end;
-        // run this twice, with different order of arguments, to generate two halves, then merge
         // outArray := TJsonArray.create();
         edgesArray := outPoly.A['edges'];
         // add poly2 to poly1
@@ -1745,8 +1751,6 @@ unit WorkshopBorder;
                 AddMessage('Checking edge #'+IntToStr(i));
             end;
             curEdge := poly2.A['edges'].O[i];
-            //pointAin := isPointInPolygon(poly1.A['points'], curEdge.O['a'].F['x'], curEdge.O['a'].F['y']);
-            //pointBin := isPointInPolygon(poly1.A['points'], curEdge.O['b'].F['x'], curEdge.O['b'].F['y']);
 
             pointAin := isPointInPolygonEdges(poly1.A['edges'], curEdge.O['a'].F['x'], curEdge.O['a'].F['y']);
             pointBin := isPointInPolygonEdges(poly1.A['edges'], curEdge.O['b'].F['x'], curEdge.O['b'].F['y']);
@@ -1808,7 +1812,11 @@ unit WorkshopBorder;
                             AddMessage('N intersects, n = '+IntToStr(intersectPoints.count));
                         end;
 
-                        //AddMessage('Unsorted list: '+intersectPoints.toString());
+                        //  - sort the intersect points by their distance to A
+                        //  - if A is outside, prepend it
+                        //  - if B is outside, append it
+                        //  - each pair of points (0..1, 2..3, 4..5, ..) is an edge. In theory, this should always be an even nr of points
+
                         sortedIntersectPoints := sortPointsByDistance(curEdge.O['a'], intersectPoints);
                         //AddMessage('Sorted list: '+sortedIntersectPoints.toString());
                         if (not pointAin) then begin
@@ -1822,7 +1830,7 @@ unit WorkshopBorder;
                             exit;
                         end;
 
-                        //AddMessage('Sorted list with extra points: '+sortedIntersectPoints.toString());
+
                         i := 0;
                         while(i<sortedIntersectPoints.count) do begin
                             isPoint1 := sortedIntersectPoints.O[i];
@@ -1833,17 +1841,10 @@ unit WorkshopBorder;
                             appendEdge(edgesArray, isPoint1, isPoint2);
                             i := i + 2;
                         end;
-                        // damn
-                        // first, I'd need a testcase for this
-                        // then:
-                        //  - sort the intersect points by their distance to A
-                        //  - if A is outside, prepend it
-                        //  - if B is outside, append it
-                        //  - each pair of points (0..1, 2..3, 4..5, ..) is an edge. In theory, this should always be an even nr of points
-                        // if this works, replace case 2 with it, too
+
+
                         sortedIntersectPoints.free();
                     end;
-                //
             end;
             intersectPoints.free();
         end;
@@ -1874,7 +1875,7 @@ unit WorkshopBorder;
         debugIndex := debugIndex + 1;
     end;
 
-    function getBoxPoints(boxPos, boxRot, boxSize: TJsonObject): TJsonArray;
+    function getBoxPoints(boxPos, boxRot, boxSize: TJsonObject; includeZ: boolean): TJsonArray;
     var
         point1rel, point2rel, point3rel, point4rel: TJsonObject;
         point1abs, point2abs, point3abs, point4abs: TJsonObject;
@@ -1899,23 +1900,33 @@ unit WorkshopBorder;
             0
         );
 
+        // point 2:
         point2rel := newVector(
             boxSize.F['x'] / 2,
             boxSize.F['y'] / 2 * -1,
             0
         );
 
+        // point 3:
         point3rel := newVector(
             boxSize.F['x'] / 2 * -1,
             boxSize.F['y'] / 2 * -1,
             0
         );
 
+        // point 4:
         point4rel := newVector(
             boxSize.F['x'] / 2 * -1,
             boxSize.F['y'] / 2,
             0
         );
+
+        if(includeZ) then begin
+            point1rel.F['z'] := boxSize.F['z'] / -2;
+            point2rel.F['z'] := boxSize.F['z'] / -2;
+            point3rel.F['z'] := boxSize.F['z'] / -2;
+            point4rel.F['z'] := boxSize.F['z'] / -2;
+        end;
 
         point1abs := GetCoordinatesRelativeToBase(boxPos, boxRot, point1rel, zeroRot);
         point2abs := GetCoordinatesRelativeToBase(boxPos, boxRot, point2rel, zeroRot);
@@ -1970,7 +1981,7 @@ unit WorkshopBorder;
         boxPosAdj := VectorSubtract(boxPos, wsOrigin);
 
 
-        boxDownSize := boxPosAdj.F['z'] - ( boxSize.F['z'] /2);
+        boxDownSize := boxPosAdj.F['z'] - ( boxSize.F['z'] / 2);
 
         if(boxDownSize < wsMinHeight) then begin
             wsMinHeight := boxDownSize;
@@ -1978,7 +1989,7 @@ unit WorkshopBorder;
 
         boxPosAdj.F['z'] := 0;
 
-        points := getBoxPoints(boxPosAdj, boxRot, boxSize);
+        points := getBoxPoints(boxPosAdj, boxRot, boxSize, false);
         //AddMessage('points='+points.toString());
 
         edges := getEdgesFromPoints(points);
@@ -1997,17 +2008,6 @@ unit WorkshopBorder;
             currentPolygon.free();
             currentPolygon := newPoly;
         end;
-
-
-        // now we need:
-        // [x] the points of the box, rotated (in the future, maybe even a 2d projection of the arbitrary rotated box)
-        // [x] an algorithm to actually calculate the union of a set of polygons
-        // [?] assemble the edges I found into a polygon with an inside and an outside
-        // [x] read the LAND record, find the height for each edge.
-        // [x]add more points along the path
-        // [x] actually write a NIF based on this...
-
-
 
         points.free();
         boxSize.free();
@@ -2112,27 +2112,31 @@ unit WorkshopBorder;
         prevPolygon.free();
     end;
 
-
-
-    function getWorkshopDescription(wsRef: IInterface): string;
+    function ShowSaveFileDialogWithStartPath(title: string; filter: string; startPath: string): string;
     var
-        location: IInterface;
+        objFile: TSaveDialog;
     begin
-        location := pathLinksTo(wsRef, 'XLRL');
-        if(assigned(location)) then begin
-            Result := ShortName(wsRef) + ' at ' + getElementEditValues(location, 'FULL');
-            exit;
+        objFile := CreateSaveFileDialog(title, filter, startPath);
+        Result := '';
+        try
+            if objFile.Execute then begin
+                Result := objFile.FileName;
+            end;
+        finally
+            objFile.free;
         end;
-        Result := ShortName(wsRef);
     end;
+
 
     procedure outputBrowseHandler(Sender: TObject);
 	var
 		inputPath: TEdit;
 		pathStr: string;
+        curPath: string;
 	begin
 		inputPath := TLabeledEdit(sender.parent.FindComponent('editOutput'));
-		pathStr := ShowSaveFileDialog('Save Output As', 'NIF Files|*.nif|All Files|*.*');
+        curPath := ExtractFilePath(inputPath.text); // attempt to start in current dir
+		pathStr := ShowSaveFileDialogWithStartPath('Save Output As', 'NIF Files|*.nif|All Files|*.*', curPath);
 		if(pathStr <> '') then begin
             if(not strEndsWithCI(pathStr, '.nif')) then begin
                 pathStr := pathStr + '.nif';
@@ -2141,41 +2145,119 @@ unit WorkshopBorder;
 		end;
 	end;
 
-    procedure cacheClearHandler(Sender: TObject);
-	var
-		btnClearCache: TButton;
-        cacheLabel: TLabel;
-	begin
-		btnClearCache := TButton(sender.parent.FindComponent('btnClearCache'));
-		cacheLabel := TLabel(sender.parent.FindComponent('cacheLabel'));
 
-        worldspaceCellCache.clear();
+    function getWorkshopLocation(wsRef: IInterface): IInterface;
+    var
+        wsX, wsY: float;
+        cellX, cellY: integer;
+        worldSpace, cell: IInterface;
+    begin
+        Result := pathLinksTo(wsRef, 'XLRL');
+        if(assigned(Result)) then begin
+           exit;
+        end;
 
-        AddMessage('Cache cleared.');
+        worldSpace := getParentWorldSpace(wsRef);
+        if(not assigned(worldSpace)) then exit;
 
-        btnClearCache.enabled := false;
-        cacheLabel.Text := 'Cell Cache Empty';
-	end;
+        wsX := GetElementNativeValues(wsRef, 'DATA\Position\X');
+        wsY := GetElementNativeValues(wsRef, 'DATA\Position\Y');
+
+        cellX := getGridCoord(wsX);
+        cellY := getGridCoord(wsY);
+
+        cell := getWorldspaceCell(worldSpace, cellX, cellY);
+
+        Result := pathLinksTo(cell, 'XLCN');
+    end;
+
+    function getWorkshopDescription(wsRef: IInterface): string;
+    var
+        location: IInterface;
+    begin
+        location := getWorkshopLocation(wsRef);
+        if(assigned(location)) then begin
+            Result := ShortName(wsRef) + ' at ' + getElementEditValues(location, 'FULL');
+            exit;
+        end;
+        Result := ShortName(wsRef);
+    end;
+
+    function generatePathForWorkshop(wsRef: IInterface): string;
+    var
+        location: IInterface;
+        baseStr: string;
+    begin
+        Result := '';
+        baseStr := EditorID(wsRef);
+        if(baseStr = '') then begin
+            location := getWorkshopLocation(wsRef);
+            if(not assigned(location)) then exit;
+
+            baseStr := cleanStringForEditorID(getElementEditValues(location, 'FULL'));
+        end;
+
+        if(baseStr = '') then exit;
+
+        // DataPath includes \
+        Result := DataPath + autoPathBase + baseStr+ '.nif';
+    end;
+
+    procedure autoFillOutputPath(sender: TObject);
+    var
+        cbAutoOutputFile: TCheckBox;
+        path: string;
+        editOutput: TLabeledEdit;
+    begin
+		editOutput := TLabeledEdit(sender.parent.FindComponent('editOutput'));
+        if(editOutput.Text <> '') then exit;
+
+		cbAutoOutputFile := TCheckBox(sender.parent.FindComponent('cbAutoOutputFile'));
+        if(cbAutoOutputFile.checked) then begin
+            path := generatePathForWorkshop(currentGuiWorkshopRef);
+            editOutput.Text := path;
+        end;
+    end;
+
+
+    procedure outputFileChangeHandler(sender: TObject);
+    var
+        cbAutoOutputFile: TCheckBox;
+        path: string;
+        editOutput: TLabeledEdit;
+        btnOk: TButton;
+    begin
+		editOutput := TLabeledEdit(sender.parent.FindComponent('editOutput'));
+		btnOk := TButton(sender.parent.FindComponent('btnOk'));
+
+        btnOk.enabled := (trim(editOutput.Text) <> '');
+    end;
 
 
     function showGui(wsRef: IInterface): boolean;
     var
         frm: TForm;
-        btnOk, btnCancel, btnBrowse, btnClearCache: TButton;
-		editOutput, editHeightTop, editHeightBottom, editPrecision, editTolerance: TLabeledEdit;
+        btnOk, btnCancel, btnBrowse: TButton;
+		editOutput, editHeightTop, editHeightBottom, editPrecision, editTolerance, editHeightHelperBoxEdid: TLabeledEdit;
         resultCode: cardinal;
         cacheLabel: TLabel;
-        cbExtendToBottom, cbUseWaterHeight, cbSoftBottomEdge, cbFlattenBottomEdge: TCheckBox;
+        cbExtendToBottom, cbUseWaterHeight, cbSoftBottomEdge, cbFlattenBottomEdge, cbDoFullPrec, cbAutoOutputFile: TCheckBox;
     begin
+        currentGuiWorkshopRef := wsRef;
         Result := false;
-        frm := CreateDialog('Generate Workshop Border', 450, 300);
+        frm := CreateDialog('Generate Workshop Border', 450, 380);
         CreateLabel(frm, 10, 10, 'Processing: '+getWorkshopDescription(wsRef));
 
         editOutput := CreateLabelledInput(frm, 10, 50, 380, 50, 'Output File:', '');
         editOutput.Name := 'editOutput';
         editOutput.Text := '';
+
         btnBrowse := CreateButton(frm, 400, 48, '...');
         btnBrowse.onclick := outputBrowseHandler;
+
+        if(autoOutputFile) then begin
+            editOutput.Text := generatePathForWorkshop(wsRef);
+        end;
 
         {borderHeight: float;
         borderPrecision: float;
@@ -2185,15 +2267,9 @@ unit WorkshopBorder;
         editHeightBottom := CreateLabelledInput(frm, 200, 100, 160, 50, 'Border Depth', FloatToStr(borderDownHeight));
 
 
-        editPrecision := CreateLabelledInput(frm, 10, 140, 160, 50, 'Height Precision', FloatToStr(borderPrecision));
+        editPrecision := CreateLabelledInput(frm, 10, 140, 160, 50, 'Step Size', FloatToStr(borderPrecision));
         editTolerance := CreateLabelledInput(frm, 200, 140, 160, 50, 'Height Tolerance', FloatToStr(heightTolerance));
 
-        {
-        extendToBottom
-        useWaterHeight
-        softBottomEdge
-        flattenBottomEdge
-        }
         cbExtendToBottom := CreateCheckbox(frm, 10, 180, 'Extend to Bottom of Build Area');
         cbExtendToBottom.checked := extendToBottom;
 
@@ -2206,38 +2282,32 @@ unit WorkshopBorder;
         cbFlattenBottomEdge := CreateCheckbox(frm, 200, 200, 'Flatten Bottom Edge');
         cbFlattenBottomEdge.checked := flattenBottomEdge;
 
+        cbDoFullPrec := CreateCheckbox(frm, 10, 220, 'Full Precision');
+        cbDoFullPrec.checked := doFullPrec;
 
-{
-        cacheLabel := CreateLabel(frm, 10, 174, 'Cell Cache Empty');
-        cacheLabel.Name := 'cacheLabel';
-        btnClearCache := CreateButton(frm, 200, 170, 'Clear Cell Cache');
-        btnClearCache.Name := 'btnClearCache';
-        btnClearCache.enabled := false;
-        btnClearCache.onclick := cacheClearHandler;
-
-        if(worldspaceCellCache.count > 0) then begin
-            btnClearCache.enabled := true;
-            cacheLabel.Text := 'Cell Cache Loaded';
-        end;
-}
+        cbAutoOutputFile := CreateCheckbox(frm, 200, 220, 'Auto Output File');
+        cbAutoOutputFile.checked := autoOutputFile;
+        cbAutoOutputFile.Name := 'cbAutoOutputFile';
+        cbAutoOutputFile.onclick := autoFillOutputPath;
 
 
-        btnOk     := CreateButton(frm, 130, 240, '  OK  ');
-        btnCancel := CreateButton(frm, 210, 240, 'Cancel');
+        editHeightHelperBoxEdid := CreateLabelledInput(frm, 10, 260, 380, 50, 'Height Override Marker (Editor ID)', heightHelperBoxEdid);
+
+
+
+        btnOk     := CreateButton(frm, 130, 300, '  OK  ');
+        btnCancel := CreateButton(frm, 210, 300, 'Cancel');
 
         btnOk.Default := true;
+        btnOk.Name := 'btnOk';
         btnOk.ModalResult := mrYes;
 
         btnCancel.ModalResult := mrCancel;
 
 
-        {
-        saveNifAs = 'F:\MO2-Games\Fallout4\mods\Pond Settlement DEV\Meshes\pra\PondBorder.nif'; // DEBUG
+        outputFileChangeHandler(editOutput);
+        editOutput.onchange := outputFileChangeHandler;
 
-        borderHeight = 512;
-        borderPrecision = 128;
-        borderDownHeight = 128;
-        }
         resultCode := frm.ShowModal();
         if(resultCode = mrYes) then begin
             borderHeight := StrToFloat(editHeightTop.Text);
@@ -2249,6 +2319,10 @@ unit WorkshopBorder;
             useWaterHeight := cbUseWaterHeight.checked;
             softBottomEdge := cbSoftBottomEdge.checked;
             flattenBottomEdge := cbFlattenBottomEdge.checked;
+            doFullPrec := cbDoFullPrec.checked;
+            heightHelperBoxEdid := trim(editHeightHelperBoxEdid.text);
+
+            autoOutputFile := cbAutoOutputFile.checked;
 
             saveNifAs := trim(editOutput.Text);
             if(saveNifAs <> '') then begin
@@ -2269,6 +2343,125 @@ unit WorkshopBorder;
         // interior flag: 1
         dataFlags := GetElementNativeValues(cell, 'DATA');
         Result := (dataFlags and 1) <> 0;
+    end;
+
+
+    function addHelperBoxRef(ref: IInterface): boolean;
+    var
+        ws, xprm: IInterface;
+        wsKey, refKey: string;
+        watEdges, posVector, rotVector, boxSize, newEntry, newPoint: TJsonObject;
+        boxDownSize: float;
+        wsEntry, points: TJsonArray;
+        i: integer;
+    begin
+        //AddMessage('trying '+FullPath(ref));
+        Result := false;
+        ws := getParentWorldSpace(ref);
+        if (not assigned(ws)) then begin
+            //AddMessage('no ws');
+            exit;
+        end;
+
+        xprm := ElementByPath(ref, 'XPRM');
+        if (not assigned(xprm)) then begin
+            //AddMessage('no xprm');
+            exit;
+        end;
+
+        if (getElementEditValues(xprm, 'Type') <> 'Box') then begin
+            //AddMessage('not box');
+            exit;
+        end;
+        // addHelperBoxRef
+
+        posVector := getPositionVector(ref, 'DATA');
+        rotVector := getRotationVector(ref, 'DATA');
+        boxSize := getSizeVector(ref);
+
+        if(boxSize.F['x'] = 0.0) or (boxSize.F['y'] = 0.0) or (boxSize.F['z'] = 0.0) then begin
+            //AddMessage('no size');
+            exit;
+        end;
+
+        wsKey := FormToAbsStr(ws);
+
+        points := getBoxPoints(posVector, rotVector, boxSize, true);
+        // I think we should reorder the points, so that they are in the NO SO SW NW position
+
+        wsEntry := helperBoxes.O['worldspaces'].A[wsKey];
+        newEntry := wsEntry.addObject();
+
+        newEntry.S['ref'] := FormToAbsStr(ref);
+        for i:=0 to points.count-1 do begin
+            newPoint := newEntry.A['points'].addObject();
+            newPoint.F['x'] := points.O[i].O['pos'].F['x'];
+            newPoint.F['y'] := points.O[i].O['pos'].F['y'];
+            newPoint.F['z'] := points.O[i].O['pos'].F['z'];
+
+            // newEntry.A['points'] := points;
+        end;
+
+        watEdges := createPolygonData(points);
+        newEntry.A['edges'] := watEdges.A['edges'];
+        // AddMessage('newEntry = '+newEntry.toString());
+
+        posVector.free();
+        rotVector.free();
+        points.free();
+        boxSize.free();
+
+        Result := true;
+    end;
+
+    procedure loadHelperBoxes();
+    var
+        baseObj, curRef: IInterface;
+        i, numBoxes: integer;
+    begin
+        if(heightHelperBoxEdid = '') then exit;
+
+        if(helperBoxes.S['prevEdid'] = heightHelperBoxEdid) then begin
+            // still valid
+            exit;
+        end;
+
+        helperBoxes.clear();
+        helperBoxes.S['prevEdid'] := heightHelperBoxEdid;
+
+        baseObj := FindObjectByEdidAndSignature(heightHelperBoxEdid, 'ACTI');
+        if(not assigned(baseObj)) then begin
+            AddMessage('Didn''t find any activator with EditorID '+heightHelperBoxEdid+', skipping');
+            exit;
+        end;
+        AddMessage('Loading helper boxes with EditorID '+heightHelperBoxEdid);
+
+        for i := 0 to ReferencedByCount(baseObj)-1 do begin
+            curRef := WinningOverrideOrSelf(ReferencedByIndex(baseObj, i));
+
+            if(Signature(curRef) <> 'REFR') then continue;
+
+            if(isSameForm(pathLinksTo(curRef, 'NAME'), baseObj)) then begin
+                if(addHelperBoxRef(curRef)) then begin
+                    numBoxes := numBoxes + 1;
+                end;
+            end;
+        end;
+        AddMessage('Found '+IntToStr(numBoxes)+' helper boxes');
+        if(debugMode) then begin
+            AddMessage('Helper Box Data: '+helperBoxes.toString());
+        end;
+    end;
+
+    function getParentWorldSpace(ref: IInterface): IInterface;
+    var
+        wsCell: IInterface;
+    begin
+        Result := nil;
+        wsCell := pathLinksTo(ref, 'CELL');
+        if(isCellInterior(wsCell)) then exit;
+        // find the worldspace of this wsRef
+        Result := pathLinksTo(wsCell, 'Worldspace');
     end;
 
     procedure processWorkshop(wsRef: IInterface);
@@ -2301,6 +2494,7 @@ unit WorkshopBorder;
         if (not showGui(wsRef)) then begin
             exit;
         end;
+
         wsOrigin := getPositionVector(wsRef, 'DATA');
         wsMinHeight := wsOrigin.F['z'] + 900000;
         borderMinHeight := wsMinHeight;
@@ -2319,14 +2513,14 @@ unit WorkshopBorder;
             writeSvg(currentPolygon, 'output.svg');
         end;
 
-        //AddMessage('Caching Cells');
-        //cacheWorldspaceCells(worldSpace);
+        loadHelperBoxes();
+
         AddMessage('Adding Terrain Height');
         addTerrainHeight(wsRef, worldSpace);
 
 
 
-        AddMessage('Writing NIF');
+        AddMessage('Writing NIF to '+saveNifAs);
         writeNif();
         AddMessage('Finished!');
 
@@ -2345,7 +2539,8 @@ unit WorkshopBorder;
         refX := GetElementNativeValues(e, 'DATA\Position\X');
         refY := GetElementNativeValues(e, 'DATA\Position\Y');
 
-        refWs := pathLinksTo(pathLinksTo(e, 'CELL'), 'Worldspace');
+        //refWs := pathLinksTo(pathLinksTo(e, 'CELL'), 'Worldspace');
+        refWs := getParentWorldSpace(e);
 
         terrainHeight := getTerrainHeight(refX, refY, refWs);
 
@@ -2375,6 +2570,7 @@ unit WorkshopBorder;
         saveCellCache();
 
         cellHeights.free();
+        helperBoxes.free();
         worldspaceCellCache.free();
     end;
 
