@@ -1,5 +1,11 @@
 {
-    Run in a cell. You will be asked which layers to export.
+    Run in a cell. You will be asked which layers to export. 
+    Click "Export Selected" to get the "Save File As..." dialog.
+    
+    This is technically made for the usage with SS2, but it doesn't actually depend on it.
+    
+    The value of "Set Level To:" will be written to Column I "iLevel".
+    A SS2 table header will also be added
 }
 unit ExportCellRefs;
     uses praUtil;
