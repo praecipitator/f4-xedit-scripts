@@ -1,4 +1,10 @@
 {
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    !!! =========================================== IMPORTANT ============================================ !!!
+    !!! For this to work, you MUST disable the xEdit setting "Simple records LAND, NAVI, NAVM, CELL, WRLD" !!!
+    !!! It's found in the ≡ menu in the top left of xEdit. Or press Ctrl+O.                                !!!
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
     Run on exterior workshop reference. In theory, this should work on multiple workshops, showing the config UI for each.
 
     The resulting NIF is intended to be positioned at the workshop's position, but without any rotation.
@@ -613,7 +619,7 @@ unit WorkshopBorder;
     var
         cell, land, vhgt, rows, cols, curRow, curEntry: IInterface;
         x, y: integer;
-        xString, yString: string;
+        xString, yString, entryString: string;
         landOffset, landValue, curVal, rowStartVal: float;
         waterHeight, landHeightScaled: float;
     begin
@@ -652,8 +658,11 @@ unit WorkshopBorder;
             for x := 0 to 32 do begin
                 xString := IntToStr(x);
                 curEntry := ElementByIndex(curRow, x);
-
-                curVal := StrToFloat(GetEditValue(curEntry));
+                entryString := GetEditValue(curEntry);
+                if(entryString = '') then begin
+                    AddMessage('Looks like you didn''t disable the "Simple Records" setting in xEdit. This script will crash now.');
+                end;
+                curVal := StrToFloat(entryString);
                 if(curVal > 127) then begin
                     curVal := curVal - 256;
                 end;

@@ -1,7 +1,7 @@
 {
     Some useful functions.
 
-    Version 2023-10-05
+    Version 2023-10-13
 }
 unit PraUtil;
 
@@ -2442,7 +2442,7 @@ unit PraUtil;
     function isReferenceSignature(sig: string): boolean;
     begin
         // todo are these all?
-        Result := ( (sig = 'REFR') or (sig = 'ACHR') or (sig = 'PGRE') );
+        Result := ( (sig = 'REFR') or (sig = 'ACHR') or (sig = 'PGRE') or (sig = 'PHZD') );
     end;
 
     {
