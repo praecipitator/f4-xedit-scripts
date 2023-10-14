@@ -1,7 +1,7 @@
 {
     Some useful functions.
 
-    Version 2023-10-13
+    Version 2023-10-14
 }
 unit PraUtil;
 
@@ -1485,7 +1485,7 @@ unit PraUtil;
         end;
 
     end;
-    
+
     // linkage
     {
         Returns whatever `fromRef` might be linked to using `usingKw`
@@ -2861,6 +2861,61 @@ unit PraUtil;
         end;
 
         Result := ElementAssign(propValue, HighInteger, nil, false);
+    end;
+
+    {
+        For Previsibines: decodes the two-byte string edit value of VISI or PCMB into a proper number
+    }
+    function decodeHexTimestampString(ts: string): cardinal;
+    var
+        sl: TStringList;
+    begin
+        Result := 0;
+        if(ts = '') then exit;
+        sl := TStringList.Create;
+        sl.DelimitedText := ts;
+        Result := StrToInt64('$' + sl[1] + sl[0]);
+        sl.free();
+    end;
+
+    {
+        Transforms a previs timestamp into a string containing two bytes for writing into the cell's edit value of VISI or PCMB
+    }
+    function encodeHexTimestampString(ts: cardinal): string;
+    var
+        byte1, byte2: cardinal;
+    begin
+        byte1 := (ts and $FF00) shr 8;
+        byte2 := (ts and $FF);
+
+        Result := IntToHex(byte2, 2)+' '+IntToHex(byte1, 2);
+    end;
+
+    {
+        Encodes day, month, year into a previs timestamp
+    }
+    function dateToTimestamp(day, month, year: cardinal): cardinal;
+    begin
+        // Day      0000000000011111 = $1F
+        // Month    0000000111100000 = $1E0  // shl 5
+        // Year     1111111000000000 = $FE00 // shl 9 (starts at 2000)
+        year := year - 2000;
+
+        Result := (day and $1F) or ((month shl 5) and $1E0) or ((year shl 9) and $FE00);
+    end;
+
+    {
+        Creates a
+    }
+    function timestampToDate(timestamp: cardinal): string;
+    var
+        day, month, year: cardinal;
+    begin
+        day := (timestamp and $1F);
+        month := (timestamp and $1E0) shr 5;
+        year := ((timestamp and $FE00) shr 9) + 2000;
+
+        Result := IntToStr(year)+'-'+IntToStr(month)+'-'+IntToStr(day);
     end;
 
     {

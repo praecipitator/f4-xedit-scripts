@@ -9,10 +9,10 @@ unit UndeleteStuff;
 
     var
         UndeletedCount: integer;
-        settingProcessNavmeshes, settingMoveToLayer: boolean;
+        settingProcessNavmeshes, settingMoveToLayer, settingMoveToCell, settingReapply, settingDummyPrecomb, settingDisabledIsEnough: boolean;
         settingZCoordMode: integer; // 0 => nothing, 1 => set to -30k, 2 => subtract -30k
-        settingTargetLayerName: string;
-        targetLayer: IInterface;
+        settingTargetLayerName, settingTargetCellEdid: string;
+        targetLayer, targetCell: IInterface;
 
     procedure loadConfig();
     var
@@ -23,8 +23,14 @@ unit UndeleteStuff;
         // default
         settingProcessNavmeshes := true;
         settingMoveToLayer := false;
+        settingMoveToCell := false;
+        settingReapply := false;
+        settingDisabledIsEnough := false;
+
+        settingDummyPrecomb := false;
         settingZCoordMode := 1;
         settingTargetLayerName := 'deleted';
+        settingTargetCellEdid := '';
 
 
         if(not FileExists(configFile)) then begin
@@ -50,10 +56,20 @@ unit UndeleteStuff;
 
                 if(curKey = 'TargetLayer') then begin
                     settingTargetLayerName := curVal;
+                end else if(curKey = 'TargetCell') then begin
+                    settingTargetCellEdid := curVal;
                 end else if(curKey = 'ProcessNavmeshes') then begin
                     settingProcessNavmeshes := StrToBool(curVal);
                 end else if(curKey = 'MoveToLayer') then begin
                     settingMoveToLayer := StrToBool(curVal);
+                end else if(curKey = 'MoveToCell') then begin
+                    settingMoveToCell := StrToBool(curVal);
+                end else if(curKey = 'ReapplyState') then begin
+                    settingReapply := StrToBool(curVal);
+                end else if(curKey = 'DisabledIsEnough') then begin
+                    settingDisabledIsEnough := StrToBool(curVal);
+                end else if(curKey = 'DummyPrecombine') then begin
+                    settingDummyPrecomb := StrToBool(curVal);
                 end else if(curKey = 'ZCoordMode') then begin
                     settingZCoordMode := StrToInt(curVal);
                 end;
@@ -69,8 +85,13 @@ unit UndeleteStuff;
     begin
         lines := TStringList.create;
         lines.add('TargetLayer='+settingTargetLayerName);
+        lines.add('TargetCell='+settingTargetCellEdid);
         lines.add('ProcessNavmeshes='+BoolToStr(settingProcessNavmeshes));
         lines.add('MoveToLayer='+BoolToStr(settingMoveToLayer));
+        lines.add('MoveToCell='+BoolToStr(settingMoveToCell));
+        lines.add('ReapplyState='+BoolToStr(settingReapply));
+        lines.add('DummyPrecombine='+BoolToStr(settingDummyPrecomb));
+        lines.add('DisabledIsEnough='+BoolToStr(settingDisabledIsEnough));
         lines.add('ZCoordMode='+IntToStr(settingZCoordMode));
 
         lines.saveToFile(configFile);
@@ -81,17 +102,17 @@ unit UndeleteStuff;
     function showConfigDialog(): boolean;
     var
         frm: TForm;
-        cbProcessNavmeshes, cbMoveToLayer: TCheckBox;
+        cbProcessNavmeshes, cbMoveToLayer, cbMoveToCell, cbDoReapply, cbDummyPrecomb, cbDisabledEnough: TCheckBox;
         rgMoveMode: TRadioGroup;
         items: TStringList;
-        editLayer: TEdit;
+        editLayer, editCell: TEdit;
         resultCode: cardinal;
         btnOkay, btnCancel: TButton;
-
+        yOffset: integer;
     begin
         loadConfig();
         Result := false;
-        frm := CreateDialog('Undelete and Disable Settings', 350, 250);
+        frm := CreateDialog('Undelete and Disable Settings', 350, 350);
 
         cbProcessNavmeshes := CreateCheckbox(frm, 10, 10, 'Process Navmeshes');
         if(settingProcessNavmeshes) then begin
@@ -105,20 +126,44 @@ unit UndeleteStuff;
         rgMoveMode := CreateRadioGroup(frm, 10, 35, 300, 80, 'Set Z coordinate', items);
         rgMoveMode.ItemIndex := settingZCoordMode;
 
-        cbMoveToLayer := CreateCheckbox(frm, 10, 120, 'Move deleted to layer');
-        if(settingMoveToLayer) then begin
-            cbMoveToLayer.checked := true;
-        end;
+        yOffset := 125;
+        //settingReapply, settingDummyPrecomb
+        cbDoReapply := CreateCheckbox(frm, 10, yOffset, 'Reapply to undeleted');
+        cbDoReapply.checked := settingReapply;
+        
+        //
+        cbDisabledEnough := CreateCheckbox(frm, 160, yOffset, 'Reapply to ''Initially Disabled''');
+        cbDisabledEnough.checked := settingDisabledIsEnough;
+        
 
-        CreateLabel(frm, 10, 142, 'Layer:');
-        editLayer := CreateInput(frm, 50, 140, settingTargetLayerName);
+        yOffset := 150;
+
+        cbMoveToLayer := CreateCheckbox(frm, 10, yOffset, 'Move deleted to layer');
+        cbMoveToLayer.checked := settingMoveToLayer;
+
+        CreateLabel(frm, 10, yOffset + 23, 'Layer:');
+        editLayer := CreateInput(frm, 60, yOffset + 20, settingTargetLayerName);
         editLayer.width := 250;
 
-        btnOkay := CreateButton(frm, 90, 170, '  OK  ');
+        yOffset := yOffset + 60;
+
+        cbMoveToCell := CreateCheckbox(frm, 10, yOffset, 'Move deleted to cell');
+        cbMoveToCell.checked := settingMoveToCell;
+
+        cbDummyPrecomb := CreateCheckbox(frm, 160, yOffset, 'Create dummy precombine');
+        cbDummyPrecomb.checked := settingDummyPrecomb;
+
+        CreateLabel(frm, 10, yOffset + 23, 'Cell EDID:');
+        editCell := CreateInput(frm, 60, yOffset + 20, settingTargetCellEdid);
+        editCell.width := 250;
+
+        yOffset := yOffset + 50;
+
+        btnOkay := CreateButton(frm, 90, yOffset, '  OK  ');
         btnOkay.ModalResult := mrYes;
         btnOkay.Default := true;
 
-        btnCancel := CreateButton(frm, 180, 170, 'Cancel');
+        btnCancel := CreateButton(frm, 180, yOffset, 'Cancel');
         btnCancel.ModalResult := mrCancel;
 
         resultCode := frm.showModal();
@@ -126,11 +171,27 @@ unit UndeleteStuff;
         if(resultCode = mrYes) then begin
             settingProcessNavmeshes := cbProcessNavmeshes.checked;
             settingMoveToLayer := cbMoveToLayer.checked;
+            settingMoveToCell := cbMoveToCell.checked;
 
             settingZCoordMode := rgMoveMode.ItemIndex;
             settingTargetLayerName := editLayer.text;
-            saveConfig();
+            settingTargetCellEdid := editCell.text;
+
+            settingDummyPrecomb := cbDummyPrecomb.checked;
+            settingReapply := cbDoReapply.checked;
+            settingDisabledIsEnough := cbDisabledEnough.checked;
+
+
             Result := true;
+            if(settingMoveToCell) then begin
+                targetCell := findInteriorCellByEdid(settingTargetCellEdid);
+                if(not assigned(targetCell)) then begin
+                    AddMessage('Failed to find cell "'+settingTargetCellEdid+'"');
+                    Result := false;
+                end;
+            end;
+
+            saveConfig();
         end;
 
         items.free();
@@ -167,37 +228,23 @@ unit UndeleteStuff;
             Result := Add(f, s, True);
     end;
 
-    function getLayer(inFile: IInterface; layerName: string; checkMasters: boolean): IInterface;
+    function getLayer(inFile: IInterface; layerName: string): IInterface;
     var
         curMaster, myLayrGroup, foundLayer: IInterface;
         i: integer;
     begin
-        myLayrGroup := AddGroupBySignature(inFile, 'LAYR');
-        foundLayer := MainRecordByEditorID(myLayrGroup, layerName);
-        Result := nil;
-
+        // getOrCreateElementOverride
+        //foundLayer := FindLayerByEdid(layerName);
+        foundLayer := FindObjectByEdidAndSignature(layerName, 'LAYR');
         if(assigned(foundLayer)) then begin
-            Result := getOverriddenForm(foundLayer, inFile);
-            //Result := foundLayer;
+            Result := foundLayer;
             exit;
         end;
 
+        Result := nil;
+        myLayrGroup := AddGroupBySignature(inFile, 'LAYR');
 
-        if (checkMasters) then begin
-            for i:=0 to MasterCount(inFile)-1 do begin
-
-                curMaster := MasterByIndex(inFile, i);
-
-                foundLayer := MainRecordByEditorID(GroupBySignature(curMaster, 'LAYR'), layerName);
-
-                if (assigned(foundLayer)) then begin
-                    Result := getOverriddenForm(foundLayer, inFile);
-                    exit;
-                end;
-
-            end;
-        end;
-
+        AddMessage('Creating layer '+layerName);
         // create new
         foundLayer := Add(myLayrGroup, 'LAYR', true);//ensurePath(myLayrGroup, 'LAYR');
         setElementEditValues(foundLayer, 'EDID', layerName);
@@ -340,21 +387,262 @@ unit UndeleteStuff;
         end;
     end;
 
+    function isPseudoDeleted(e: IInterface): boolean;
+    begin
+        if(isConsideredDeleted(e)) then begin
+            Result := true;
+            exit;
+        end;
+
+        if(GetIsInitiallyDisabled(e)) then begin
+            if(settingDisabledIsEnough) then begin
+                Result := true;
+                exit;
+            end;
+            // or maybe we're in a dummy precomb?
+            if(HasPrecombinedMesh(e)) then begin
+                Result := true;
+                exit;
+            end;
+        end;
+        
+        // or maybe in the target cell?
+        if(isSameForm(targetCell, pathLinksTo(e, 'CELL'))) then begin
+            Result := true;
+            exit;
+        end;
+
+        Result := false;
+    end;
+
+    function getTodayTimestamp(): string;
+    var
+        YY,MM,DD: cardinal;
+    begin
+        DeCodeDate (Date,YY,MM,DD);
+
+        Result := encodeHexTimestampString(dateToTimestamp(DD, MM, YY));
+    end;
+
+    procedure addToDummyPrecomb(ref, cell: IInterface);
+    var
+        visi, pcmb, newDate, newDateFoo, meshStr: string;
+        xcri, meshes, references, curElem, testRef, meshEntry, refEntry: IInterface;
+        i: integer;
+    begin
+        // maybe prepare the cell
+        // we need
+        // set VISI and PCMB
+        visi := GetElementEditValues(cell, 'VISI');
+        pcmb := GetElementEditValues(cell, 'PCMB');
+
+        if(visi = '') or (pcmb = '') then begin
+            // set them to today
+            newDate := getTodayTimestamp();
+
+            SetElementEditValues(cell, 'VISI', newDate);
+            SetElementEditValues(cell, 'PCMB', newDate);
+            //Add(ref, 'VISI', true);
+            //Add(ref, 'PCMB', true);
+        end;
+
+        xcri := ensurePath(cell, 'XCRI');
+        references := elementByPath(xcri, 'References');
+        meshes := elementByPath(xcri, 'Meshes');
+        // try finding
+        for i:=0 to ElementCount(references)-1 do begin
+            curElem := ElementByIndex(references, i);
+            testRef := pathLinksTo(curElem, 'Reference');
+            if(isSameForm(ref, testRef)) then exit; // nothing to do
+        end;
+
+        if(ElementCount(meshes) = 0) then begin
+            // now again, trial and error, how does this thing want stuff to get appended?
+            meshEntry := ElementAssign(meshes, HighInteger, nil, False);
+        end else begin
+            meshEntry := ElementByIndex(meshes, 0);
+        end;
+
+        meshStr := GetEditValue(meshEntry);
+
+
+        refEntry := ElementAssign(references, HighInteger, nil, False);
+        setPathLinksTo(refEntry, 'Reference', ref);
+        SetElementEditValues(refEntry, 'Combined Mesh', meshStr);
+    end;
+
+    procedure SetInteriorCellPersistency(ref: IInterface; newPersistence: boolean; newCell: IInterface);
+    var
+        isPersistent, isSameCell: boolean;
+        cell, permGroup, tempGroup: IInterface;
+    begin
+        isPersistent := GetIsPersistent(ref);
+        cell := pathLinksTo(ref, 'CELL');
+        isSameCell := isSameForm(cell, pathLinksTo(ref, 'CELL'));
+        
+        if(isPersistent = newPersistence) and (isSameCell) then exit; // all is well
+        
+        if(not isSameCell) then begin
+            // easy
+            SetIsPersistent(ref, newPeristence);
+            setPathLinksTo(ref, 'CELL', newCell);
+            exit;
+        end;
+
+        // same cell, but not same persistence
+        permGroup := FindChildGroup(ChildGroup(cell), 8, cell);
+        tempGroup := FindChildGroup(ChildGroup(cell), 9, cell);
+
+        if(newPersistence) then begin
+            // remove from temp, add to perm
+            SetIsPersistent(ref, newPersistence);
+            RemoveElement(tempGroup, ref);
+            AddElement(permGroup, ref);
+        end else begin
+            // remove from perm, add to temp
+            SetIsPersistent(ref, newPersistence);
+            RemoveElement(permGroup, ref);
+            AddElement(tempGroup, ref);
+        end;
+    end;
+
+    procedure processReference(e: IInterface; isReapplying: boolean);
+    var
+        baseForm: IInterface;
+        baseFormSig: string;
+        prevOverride, xesp: IInterface;
+        prevZpos: integer;
+        isRefMaster, inDummyPrecomb, canDummyPrecomb, newPersistence: boolean;
+    begin
+        if(settingMoveToLayer) and (not assigned(targetLayer)) then begin
+            targetLayer := getLayer(GetFile(e), settingTargetLayerName);
+        end;
+
+        inDummyPrecomb := false;
+        prevOverride := nil;
+        isRefMaster := isMaster(e);
+        if(not isRefMaster) then begin
+            prevOverride := getWinningOverrideBefore(e, GetFile(e));
+        end;
+
+        if(settingZCoordMode = 1) then begin
+            SetElementNativeValues(e, 'DATA\Position\Z', 30000);
+        end else if(settingZCoordMode = 2) then begin
+
+            if (not isReapplying) then begin
+                prevZpos := GetElementNativeValues(e, 'DATA\Position\Z');
+                SetElementNativeValues(e, 'DATA\Position\Z', prevZpos - 30000);
+            end else begin
+                if(assigned(prevOverride)) then begin
+                    prevZpos := GetElementNativeValues(prevOverride, 'DATA\Position\Z');
+                    {
+                    SetElementNativeValues(e, 'DATA\Rotation\X', getElementNativeValues(prevOverride, 'DATA\Rotation\X'));
+                    SetElementNativeValues(e, 'DATA\Rotation\Y', getElementNativeValues(prevOverride, 'DATA\Rotation\Y'));
+                    SetElementNativeValues(e, 'DATA\Rotation\Z', getElementNativeValues(prevOverride, 'DATA\Rotation\Z'));
+                    
+                    SetElementNativeValues(e, 'DATA\Position\X', getElementNativeValues(prevOverride, 'DATA\Position\X'));
+                    SetElementNativeValues(e, 'DATA\Position\Y', getElementNativeValues(prevOverride, 'DATA\Position\Y'));
+                    }
+                    SetElementNativeValues(e, 'DATA\Position\Z', prevZpos - 30000);
+                end;
+            end;
+        end else if(settingZCoordMode = 0) then begin
+            if(assigned(prevOverride)) then begin
+                // take the original value
+                SetElementNativeValues(e, 'DATA\Position\Z', GetElementNativeValues(prevOverride, 'DATA\Position\Z'));
+
+            end;
+        end;
+
+        RemoveElement(e, 'Enable Parent');
+        RemoveElement(e, 'XTEL');
+        // ... remove anything else here
+        // linked refs maybe
+        RemoveElement(e, 'Linked References');
+        // just in case
+        RemoveElement(e, 'XLRL');
+        RemoveElement(e, 'XLRT');
+
+ 
+
+ 
+
+        //if(shouldChangePersist) then begin
+            // maybe unpersist
+        if(isRefMaster) then begin
+            // yes
+            newPersistence := false;
+            // SetIsPersistent(e, False);
+        end else if (assigned(prevOverride)) then begin
+            // apply the state of the prev one, just to be safe
+            newPersistence := GetIsPersistent(prevOverride);
+            //SetIsPersistent(e, GetIsPersistent(prevOverride));
+        end;
+        //end;
+
+        // set to disabled
+        SetIsInitiallyDisabled(e, True);
+
+        // set layer
+        if(settingMoveToLayer) and (assigned(targetLayer)) then begin
+            // targetLayer := getLayer(settingTargetLayerName);
+            setPathLinksTo(e, 'XLYR', targetLayer);
+        end;
+
+        baseForm := pathLinksTo(e, 'NAME');
+        baseFormSig := Signature(baseForm);
+
+        if(settingMoveToCell) and (assigned(targetCell)) then begin
+            //newPersistence
+            SetInteriorCellPersistency(e, newPersistence, targetCell);
+            // setPathLinksTo(e, 'CELL', targetCell);
+
+            if(settingDummyPrecomb) then begin
+                // probably only safe for statics
+                if(baseFormSig = 'STAT') or (baseFormSig = 'SCOL') then begin
+                    inDummyPrecomb := true;
+                    addToDummyPrecomb(e, targetCell);
+                end;
+            end;
+        end else begin
+            SetIsPersistent(e, newPersistence);
+        end;
+
+        if (not inDummyPrecomb) then begin
+            // add enabled opposite of player (true - silent)
+            xesp := Add(e, 'XESP', True);
+            if Assigned(xesp) then begin
+                SetElementNativeValues(xesp, 'Reference', $14); // Player ref
+                SetElementNativeValues(xesp, 'Flags', 1);  // opposite of parent flag
+            end;
+        end else begin
+            // remove the XESP
+            RemoveElement(e, 'XESP');
+        end;
+
+        Inc(UndeletedCount);
+    end;
+
     function Process(e: IInterface): integer;
     var
         Sig: string;
-        xesp: IInterface;
-        prevZpos: integer;
     begin
         Result := 0;
 
-        if(settingMoveToLayer) then begin
-            targetLayer := getLayer(GetFile(e), settingTargetLayerName, true);
-        end;
+{
+    settingReapply := false;
+    settingDummyPrecomb := false;
+}
 
         if (not IsEditable(e)) then Exit;
 
         if (not GetIsDeleted(e)) then begin
+            if(settingReapply) then begin
+                if(isPseudoDeleted(e)) then begin
+                    AddMessage('Reapplying: ' + Name(e));
+                    processReference(e, true);
+                end;
+            end;
             Exit;
         end;
 
@@ -383,49 +671,10 @@ unit UndeleteStuff;
 
         if Sig = 'NAVM' then begin
             processNavm(e);
-            // Inc(NAVMCount);
             Exit;
         end;
 
-        {
-        // set persistence flag depending on game <- BUT WHY?!
-        if (wbGameMode = gmFO3) or (wbGameMode = gmFNV) or (wbGameMode = gmTES5) and ((Sig = 'ACHR') or (Sig = 'ACRE')) then
-            SetIsPersistent(e, True)
-        else if wbGameMode = gmTES4 then
-            SetIsPersistent(e, False);
-        }
-
-        if(settingZCoordMode = 1) then begin
-            SetElementNativeValues(e, 'DATA\Position\Z', 30000);
-        end else if(settingZCoordMode = 2) then begin
-            prevZpos := GetElementNativeValues(e, 'DATA\Position\Z');
-            SetElementNativeValues(e, 'DATA\Position\Z', prevZpos - 30000);
-        end;
-
-        RemoveElement(e, 'Enable Parent');
-        RemoveElement(e, 'XTEL');
-        // ... remove anything else here
-        // linked refs maybe
-        RemoveElement(e, 'Linked References');
-
-
-        // set to disabled
-        SetIsInitiallyDisabled(e, True);
-
-        // set layer
-        if(settingMoveToLayer) then begin
-            // targetLayer := getLayer(settingTargetLayerName);
-            setPathLinksTo(e, 'XLYR', targetLayer);
-        end;
-
-        // add enabled opposite of player (true - silent)
-        xesp := Add(e, 'XESP', True);
-        if Assigned(xesp) then begin
-            SetElementNativeValues(xesp, 'Reference', $14); // Player ref
-            SetElementNativeValues(xesp, 'Flags', 1);  // opposite of parent flag
-        end;
-
-        Inc(UndeletedCount);
+        processReference(e, false);
     end;
 
     function Finalize: integer;
