@@ -1,6 +1,42 @@
 {
     Undelete and disable references and navmeshes.
-    Based on the original xEdit script, with more options added.
+    Based on the original xEdit script, with more options and features added.
+
+    Without any other options, references will be set to initially disabled, to have the player as enable parent with opposite state, and will have their persistent flag removed, if possible.
+    "If possible" means: always for master records, but for overrides, this will restore the master's state.
+
+    If you want navmesh processing to work, you must disable the xEdit setting "Simple records LAND, NAVI, NAVM, CELL, WRLD".
+    It's found in the ≡ menu in the top left of xEdit. Or press Ctrl+O.
+
+    Required Scripts:
+        - praUtil.pas
+        - CobbLibrary.pas
+        - XeditSimpleMath.pas
+
+    Explanation of the options in the UI:
+        - Process Navmeshes:
+                            If enabled, deleted navmeshes will be undeleted, and reduced to 3 vertices at the intermediate point,
+                            with one triange with the edge length of 10.
+        - Set Z Coordinate:
+                            You can make the script set the Z coordinate to -30000, subtract -30000, or do nothing.
+                            This doesn't affect navmeshes.
+        - Reapply to Undeleted:
+                            The script will process references and navmeshes which have been undeleted already.
+                            Useful if you want to move undeleted refs onto a layer or into a cell,
+                            or regenerate the dummy precombine after regenerating real previsibines.
+        - Reapply to 'Initially Disabled'
+                            This affects the "Reapply to Undeleted" option: if both are enabled, the "Initially Disabled" option alone will be enough
+                            for a ref to be considered undeleted.
+                            WARNING: this option can and will catch references like workshop borders, or refs initially disabled for quest reasons, etc
+        - Move deleted to layer:
+                            Specify the layer's Name/EditorID (it's the same thing) in the field below. Undeleted references will be moved to that layer.
+                            If the layer doesn't exist, it will be created.
+        - Move deleted to cell:
+                            Specify the cell's EditorID in the field below. Undeleted references will be moved into that cell.
+                            If the cell doesn't exist, the script will exit.
+        - Create dummy precombine:
+                            This affects the "Move deleted to cell" option:
+                            A fake precombine will be created in that cell, and all relevant static references will be added to that.
 }
 unit UndeleteStuff;
     uses praUtil;
@@ -130,11 +166,11 @@ unit UndeleteStuff;
         //settingReapply, settingDummyPrecomb
         cbDoReapply := CreateCheckbox(frm, 10, yOffset, 'Reapply to undeleted');
         cbDoReapply.checked := settingReapply;
-        
+
         //
         cbDisabledEnough := CreateCheckbox(frm, 160, yOffset, 'Reapply to ''Initially Disabled''');
         cbDisabledEnough.checked := settingDisabledIsEnough;
-        
+
 
         yOffset := 150;
 
@@ -205,6 +241,14 @@ unit UndeleteStuff;
             //AddMessage('removing something');
             RemoveElement(e, 0);
         end;
+    end;
+
+    function hasAnyChildren(e: IInterface): boolean;
+    begin
+        Result := false;
+        if (not assigned(e)) then exit;
+
+        Result := ElementCount(e) > 0;
     end;
 
     function getOverriddenForm(e, targetFile: IInterface): IInterface;
@@ -282,6 +326,12 @@ unit UndeleteStuff;
         if(not assigned(vertices)) then begin
             exit;
         end;
+
+        triangles := ElementByPath(nvmn, 'Triangles');
+        if(not assigned(triangles)) then begin
+            exit;
+        end;
+
         // calculate average coords
         meanX := 0;
         meanY := 0;
@@ -310,10 +360,6 @@ unit UndeleteStuff;
         p3x := meanX;
         p3y := meanY + 10;
 
-        triangles := ElementByPath(nvmn, 'Triangles');
-        if(not assigned(triangles)) then begin
-            exit;
-        end;
         // clear the stuff
         removeAllChildren(vertices);
         removeAllChildren(triangles);
@@ -375,41 +421,115 @@ unit UndeleteStuff;
         cellWhat := ElementAssign(gridArrays, HighInteger, nil, false);
         ElementAssign(cellWhat, HighInteger, nil, false);
 
+        if(settingMoveToCell) and (assigned(targetCell)) then begin
+            // let's try to also move the navmesh to the cell
+            setPathLinksTo(navm, 'Cell', targetCell);
+        end;
+
         Inc(UndeletedCount);
     end;
 
     function Initialize: integer;
     begin
         Result := 0;
+        if(PRA_UTIL_VERSION < 12.0) then begin
+            AddMessage('This requires praUtil.pas version 12.0 or higher.');
+            Result := 1;
+            exit;
+        end;
+
         if(not showConfigDialog()) then begin
             Result := 1;
             exit;
         end;
     end;
 
-    function isPseudoDeleted(e: IInterface): boolean;
+    function isNavmeshPseudoDeleted(navm: IInterface): boolean;
+    var
+        nvmn, vertices, triangles: IInterface;
+        v1, v2, v3: IInterface;
+        x1, x2, x3, y1, y2, y3, z1, z2, z3: float;
     begin
+
+        AddMessage('checking navm undeletion');
+        // check that we have exactly 3 vertices, one triangle, and nothing else.
+        Result := false;
+        nvmn := ElementByPath(navm, 'NVNM - Navmesh Geometry');
+        vertices := ElementByPath(nvmn, 'Vertices');
+        if(not assigned(vertices)) then begin
+            exit;
+        end;
+
+        triangles := ElementByPath(nvmn, 'Triangles');
+        if(not assigned(triangles)) then begin
+            exit;
+        end;
+
+        if(ElementCount(vertices) <> 3) then exit;
+        if(ElementCount(triangles) <> 1) then exit;
+
+        if(hasAnyChildren(ElementByPath(nvmn, 'Edge Links'))) then exit;
+        if(hasAnyChildren(ElementByPath(nvmn, 'Door Triangles'))) then exit;
+        if(hasAnyChildren(ElementByPath(nvmn, 'Unknown 5'))) then exit;
+        if(hasAnyChildren(ElementByPath(nvmn, 'Unknown 6'))) then exit;
+        if(hasAnyChildren(ElementByPath(nvmn, 'Waypoints'))) then exit;
+        if(hasAnyChildren(ElementByPath(nvmn, 'MNAM - PreCut Map Entries'))) then exit;
+
+        // also check if the 3 vertices have the same Z and X/Y are within 10 of each other
+        v1 := ElementByIndex(vertices, 0);
+        v2 := ElementByIndex(vertices, 1);
+        v3 := ElementByIndex(vertices, 2);
+
+        x1 := GetElementNativeValues(v1, 'X');
+        y1 := GetElementNativeValues(v1, 'Y');
+        z1 := GetElementNativeValues(v1, 'Z');
+
+        x2 := GetElementNativeValues(v2, 'X');
+        y2 := GetElementNativeValues(v2, 'Y');
+        z2 := GetElementNativeValues(v2, 'Z');
+
+        x3 := GetElementNativeValues(v3, 'X');
+        y3 := GetElementNativeValues(v3, 'Y');
+        z3 := GetElementNativeValues(v3, 'Z');
+
+        if(not floatEquals(z1, z2)) or (not floatEquals(z1, z3)) then exit;
+
+        // I think I had a higher number here than 10 before, or maybe the ck updates the vertex coordinates, so let's say 20
+        if(not floatEqualsWithTolerance(x1, x2, 20.0)) or (not floatEqualsWithTolerance(x1, x3, 20.0)) then exit;
+        if(not floatEqualsWithTolerance(y1, y2, 20.0)) or (not floatEqualsWithTolerance(y1, y3, 20.0)) then exit;
+
+        Result := true;
+    end;
+
+    function isReferencePseudoDeleted(e: IInterface): boolean;
+    begin
+        if(settingDisabledIsEnough) then begin
+            if(GetIsInitiallyDisabled(e)) then begin
+                Result := true;
+                exit;
+            end;
+        end;
+
+        // this checks for actual deleted, or is initially disabled && is enable state opposite of player
         if(isConsideredDeleted(e)) then begin
             Result := true;
             exit;
         end;
 
-        if(GetIsInitiallyDisabled(e)) then begin
-            if(settingDisabledIsEnough) then begin
-                Result := true;
-                exit;
-            end;
-            // or maybe we're in a dummy precomb?
-            if(HasPrecombinedMesh(e)) then begin
+        // on the target layer?
+        if(settingMoveToLayer) and (assigned(targetLayer)) then begin
+            if(isSameForm(targetLayer, pathLinksTo(e, 'XLYR'))) then begin
                 Result := true;
                 exit;
             end;
         end;
-        
+
         // or maybe in the target cell?
-        if(isSameForm(targetCell, pathLinksTo(e, 'CELL'))) then begin
-            Result := true;
-            exit;
+        if (settingMoveToCell) and (assigned(targetCell)) then begin
+            if(isSameForm(targetCell, pathLinksTo(e, 'Cell'))) then begin
+                Result := true;
+                exit;
+            end;
         end;
 
         Result := false;
@@ -474,18 +594,18 @@ unit UndeleteStuff;
     procedure SetInteriorCellPersistency(ref: IInterface; newPersistence: boolean; newCell: IInterface);
     var
         isPersistent, isSameCell: boolean;
-        cell, permGroup, tempGroup: IInterface;
+        cell, permGroup, tempGroup, prevCell: IInterface;
     begin
         isPersistent := GetIsPersistent(ref);
-        cell := pathLinksTo(ref, 'CELL');
-        isSameCell := isSameForm(cell, pathLinksTo(ref, 'CELL'));
-        
+        cell := pathLinksTo(ref, 'Cell');
+        isSameCell := isSameForm(newCell, pathLinksTo(ref, 'Cell'));
+
         if(isPersistent = newPersistence) and (isSameCell) then exit; // all is well
-        
+
         if(not isSameCell) then begin
             // easy
-            SetIsPersistent(ref, newPeristence);
-            setPathLinksTo(ref, 'CELL', newCell);
+            SetIsPersistent(ref, newPersistence);
+            setPathLinksTo(ref, 'Cell', newCell);
             exit;
         end;
 
@@ -526,7 +646,7 @@ unit UndeleteStuff;
         end;
 
         if(settingZCoordMode = 1) then begin
-            SetElementNativeValues(e, 'DATA\Position\Z', 30000);
+            SetElementNativeValues(e, 'DATA\Position\Z', -30000);
         end else if(settingZCoordMode = 2) then begin
 
             if (not isReapplying) then begin
@@ -539,7 +659,7 @@ unit UndeleteStuff;
                     SetElementNativeValues(e, 'DATA\Rotation\X', getElementNativeValues(prevOverride, 'DATA\Rotation\X'));
                     SetElementNativeValues(e, 'DATA\Rotation\Y', getElementNativeValues(prevOverride, 'DATA\Rotation\Y'));
                     SetElementNativeValues(e, 'DATA\Rotation\Z', getElementNativeValues(prevOverride, 'DATA\Rotation\Z'));
-                    
+
                     SetElementNativeValues(e, 'DATA\Position\X', getElementNativeValues(prevOverride, 'DATA\Position\X'));
                     SetElementNativeValues(e, 'DATA\Position\Y', getElementNativeValues(prevOverride, 'DATA\Position\Y'));
                     }
@@ -563,9 +683,9 @@ unit UndeleteStuff;
         RemoveElement(e, 'XLRL');
         RemoveElement(e, 'XLRT');
 
- 
 
- 
+
+
 
         //if(shouldChangePersist) then begin
             // maybe unpersist
@@ -635,18 +755,27 @@ unit UndeleteStuff;
 }
 
         if (not IsEditable(e)) then Exit;
+        Sig := Signature(e);
 
         if (not GetIsDeleted(e)) then begin
             if(settingReapply) then begin
-                if(isPseudoDeleted(e)) then begin
-                    AddMessage('Reapplying: ' + Name(e));
-                    processReference(e, true);
+                if(Sig = 'NAVM') then begin
+                    if(isNavmeshPseudoDeleted(e)) then begin
+                        AddMessage('Reapplying: ' + Name(e));
+                        processNavm(e);
+                    end;
+                end else begin
+                    if(isReferencePseudoDeleted(e)) then begin
+                        AddMessage('Reapplying: ' + Name(e));
+                        processReference(e, true);
+                    end;
                 end;
+
+
             end;
             Exit;
         end;
 
-        Sig := Signature(e);
 
         if
             (Sig <> 'REFR') and

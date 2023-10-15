@@ -10,6 +10,11 @@
     The resulting NIF is intended to be positioned at the workshop's position, but without any rotation.
     TIP: select the Border, press Ctrl+Shift+A, and click the Workshop to align it.
 
+    Required Scripts:
+        - praUtil.pas
+        - CobbLibrary.pas
+        - XeditSimpleMath.pas
+
     Explanation of the options in the UI:
         - Output File:
                             Output NIF will be written here. Click the ... button to open a "Save File" dialog.
@@ -1400,6 +1405,12 @@ unit WorkshopBorder;
     // You can remove it if script doesn't require initialization code
     function Initialize: integer;
     begin
+        if(PRA_UTIL_VERSION < 12.0) then begin
+            AddMessage('This requires praUtil.pas version 12.0 or higher.');
+            Result := 1;
+            exit;
+        end;
+
         debugIndex := 0;
         Result := 0;
         primitiveLinkKw := GetFormByEdid(primitiveLinkEdid);

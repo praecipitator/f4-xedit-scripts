@@ -1,9 +1,12 @@
 {
     Some useful functions.
 
-    Version 2023-10-14
+    Version is now in PRA_UTIL_VERSION
 }
 unit PraUtil;
+    const
+        // for version checking
+        PRA_UTIL_VERSION = 12.0;
 
     const STRING_LINE_BREAK = #13#10;
 
