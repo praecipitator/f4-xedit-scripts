@@ -839,8 +839,13 @@ unit WorkshopBorder;
             // fill
             AddMessage('Loading terrain from '+IntToStr(cellX)+'/'+IntToStr(cellY));
             cellHeightmap := getCellHeightmap(cellX, cellY, worldSpace);
-            if(debugMode) then begin
-                writeSvgHeightmap(cellHeightmap, 'cell_'+indexX+'_'+indexY+'.svg');
+            if(cellHeightmap.count = 0) then begin
+                AddMessage('Failed to load terrain for '+FloatToStr(globalX)+'/'+FloatToStr(globalY)+', returning 0');
+                Result := 0;
+            end else begin
+                if(debugMode) then begin
+                    writeSvgHeightmap(cellHeightmap, 'cell_'+indexX+'_'+indexY+'.svg');
+                end;
             end;
             // AddMessage('cellHeightmap='+cellHeightmap.toString());
             cellHeights.O[indexX].O[indexY] := cellHeightmap;
@@ -1523,7 +1528,7 @@ unit WorkshopBorder;
             //i := i + 1;
         end;
     end;
-    
+
     function isPointOnPolygonEdges(polygonEdges: TJsonArray; testX, testY: float): boolean;
     var
         i, j, numVerts: integer;
@@ -1681,9 +1686,37 @@ unit WorkshopBorder;
     function intersectParallelEdges(edge1, edge2: TJsonObject): TJsonObject;
     var
         minX, minY, maxX, maxY: float;
-        canContinue: boolean;
+        canContinue, e1aOnEdge, e1bOnEdge, e2aOnEdge, e2bOnEdge: boolean;
+        relevantEdge1Point, relevantEdge2Point: TJsonObject;
     begin
         Result := nil;
+
+        e1aOnEdge := isPointOnEdge(edge2, edge1.O['a']);
+        e1bOnEdge := isPointOnEdge(edge2, edge1.O['b']);
+        e2aOnEdge := isPointOnEdge(edge1, edge2.O['a']);
+        e2bOnEdge := isPointOnEdge(edge1, edge2.O['b']);
+
+        if ((not e1aOnEdge) and (not e1bOnEdge)) or ((not e2aOnEdge) and (not e2bOnEdge)) then exit; // they don't touch
+
+        if (e1aOnEdge and e1bOnEdge) or (e2aOnEdge and e2bOnEdge) then exit; // one is completely inside the other
+
+        if(e1aOnEdge) then begin
+            relevantEdge1Point := edge1.O['a'];
+        end else begin
+            relevantEdge1Point := edge1.O['b'];
+        end;
+
+        if(e2aOnEdge) then begin
+            relevantEdge2Point := edge2.O['a'];
+        end else begin
+            relevantEdge2Point := edge2.O['b'];
+        end;
+
+        Result := TJsonObject.create;
+        Result.F['x'] := (relevantEdge1Point.F['x']+relevantEdge2Point.F['x'])/2.0;
+        Result.F['y'] := (relevantEdge1Point.F['y']+relevantEdge2Point.F['y'])/2.0;
+        exit;
+
         canContinue := isPointOnEdge(edge1, edge2.O['a']) or isPointOnEdge(edge1, edge2.O['b']) ;
 
         {
@@ -1708,6 +1741,8 @@ unit WorkshopBorder;
         if(not canContinue) then begin
             exit;
         end;
+
+
 
         minX := getMinOf4(edge1.O['a'].F['x'], edge1.O['b'].F['x'], edge2.O['a'].F['x'], edge2.O['b'].F['x']);
         minY := getMinOf4(edge1.O['a'].F['y'], edge1.O['b'].F['y'], edge2.O['a'].F['y'], edge2.O['b'].F['y']);
@@ -1839,6 +1874,8 @@ unit WorkshopBorder;
     var
         newEdge: TJsonObject;
     begin
+        // edgecase (huehue): points are identical
+        if(pointsEqual(p1, p2)) then exit;
         //x1, y1, z1, x2, y2, z2: float
         newEdge := edgeArray.addObject();
         newEdge.O['a'].F['x'] := p1.F['x'];
@@ -1974,7 +2011,7 @@ unit WorkshopBorder;
         m := (point1.F['y']-point2.F['y']) / (point1.F['x']-point2.F['x']);
         Result := FormatFloat('0.0000', m);
     end;
-    
+
     function pointsEqual(p1, p2: TJsonObject): boolean;
     begin
         Result := (floatEquals(p2.F['x'], p1.F['x']) and floatEquals(p2.F['y'], p1.F['y']));
@@ -2036,71 +2073,13 @@ unit WorkshopBorder;
         tempResult.free();
     end;
 
-    procedure addPointsToPolygon(poly1, pointA, pointB: TJsonObject; intermediatePoints, edgesArray: TJsonArray);
-    var
-        sortedIntersectPoints, tmp: TJsonArray;
-        i: integer;
-        isPoint1, isPoint2, nextPoint: TJsonObject;
-    begin
-//isPointOnOrInPolygonEdges
-//isPointInPolygonEdges
-        tmp := cloneJsonArray(intermediatePoints);
-
-        if (isPointOnPolygonEdges(poly1.A['edges'], pointA.F['x'], pointA.F['y'])) or (not isPointInPolygonEdges(poly1.A['edges'], pointA.F['x'], pointA.F['y'])) then begin
-            AddMessage('prepending A');
-            prependObjectToArray(tmp, pointA);
-        end;
-
-        if (isPointOnPolygonEdges(poly1.A['edges'], pointB.F['x'], pointB.F['y'])) or (not isPointInPolygonEdges(poly1.A['edges'], pointB.F['x'], pointB.F['y'])) then begin
-            AddMessage('Appending B');
-            appendObjectToArray(tmp, pointB);
-        end;
-        sortedIntersectPoints := sortPointsByDistance(pointA, tmp);
-        tmp.free();
-
-        AddMessage('before fixIntersectPoints '+sortedIntersectPoints.toString());
-        // we need to sometimes remove in-line points
-        if(sortedIntersectPoints.count > 2) then begin
-            tmp := fixIntersectPoints(sortedIntersectPoints);
-            sortedIntersectPoints.free();
-            sortedIntersectPoints := tmp;
-            AddMessage('after fixIntersectPoints '+sortedIntersectPoints.toString());
-        end;
-        
-        if(sortedIntersectPoints.count = 2) then begin
-            if(pointsEqual(sortedIntersectPoints.O[0], sortedIntersectPoints.O[1])) then exit;
-        end;
-
-        if ((sortedIntersectPoints.count mod 2) <> 0) then begin
-            AddMessage('ERROR: sortedIntersectPoints ended up at an odd length! '+IntToStr(sortedIntersectPoints.count));
-
-            exit;
-        end;
-
-        i := 0;
-        while(i<sortedIntersectPoints.count) do begin
-            isPoint1 := sortedIntersectPoints.O[i];
-            isPoint2 := sortedIntersectPoints.O[i+1];
-            if(debugMode) then begin
-                AddMessage('Adding edge #'+IntToStr(i)+' '+isPoint1.toString()+' '+isPoint2.toString());
-            end;
-            appendEdge(edgesArray, isPoint1, isPoint2);
-            i := i + 2;
-        end;
-
-
-        sortedIntersectPoints.free();
-
-
-    end;
-
     // run this twice, with different order of arguments, to generate two halves, then merge
     procedure mergePolygonsHalf(poly1, poly2, outPoly: TJsonObject);
     var
         i: integer;
         curEdge, isPoint1, isPoint2, isPoint3, newEdge: TJsonObject;
         pointAin, pointBin: boolean;
-        edgesArray, intersectPoints, sortedIntersectPoints: TJsonArray;
+        edgesArray, intersectPoints, sortedIntersectPoints, tmp: TJsonArray;
     begin
         if(debugMode) then begin
             AddMessage('mergePolygonsHalf BEGIN');
@@ -2118,13 +2097,7 @@ unit WorkshopBorder;
                 AddMessage('Checking edge #'+IntToStr(i)+' = '+curEdge.toString());
             end;
 
-            // TODO: add handling for parallel/overlapping edges. right now, we can't.
             intersectPoints := intersectPolyWithEdgeMulti(poly1, curEdge);
-            addPointsToPolygon(poly1, curEdge.O['a'], curEdge.O['b'], intersectPoints, edgesArray);
-
-            // FOR NOW
-            intersectPoints.free();
-            continue;
 
             pointAin := isPointInPolygonEdges(poly1.A['edges'], curEdge.O['a'].F['x'], curEdge.O['a'].F['y']);
             pointBin := isPointInPolygonEdges(poly1.A['edges'], curEdge.O['b'].F['x'], curEdge.O['b'].F['y']);
@@ -2178,7 +2151,7 @@ unit WorkshopBorder;
                             appendEdge(edgesArray, curEdge.O['a'], isPoint1);
                         end else begin
                             // we definitely add the inbetween point. but then what?
-                            AddMessage('!!!ANOMALY: one intersect, but pointAin='+BoolToStr(pointAin)+' pointBin='+BoolToStr(pointBin));
+                            AddMessage('ANOMALY: one intersect, but pointAin='+BoolToStr(pointAin)+' pointBin='+BoolToStr(pointBin)+'. Skipping');
                         end;
                     end;
                 else begin
@@ -2199,6 +2172,16 @@ unit WorkshopBorder;
                         if (not pointBin) then begin
                             appendObjectToArray(sortedIntersectPoints, curEdge.O['b']);
                         end;
+                        if ((sortedIntersectPoints.count mod 2) <> 0) then begin
+                            //AddMessage('ERROR: sortedIntersectPoints ended up at an odd length!');
+                            //AddMessage(sortedIntersectPoints.toString());
+                            // trying to do some extras
+                            tmp := fixIntersectPoints(sortedIntersectPoints);
+                            sortedIntersectPoints.free();
+                            sortedIntersectPoints := tmp;
+                            //exit;
+                        end;
+
                         if ((sortedIntersectPoints.count mod 2) <> 0) then begin
                             AddMessage('ERROR: sortedIntersectPoints ended up at an odd length!');
                             exit;
@@ -2810,7 +2793,7 @@ unit WorkshopBorder;
 
         baseObj := FindObjectByEdidAndSignature(heightHelperBoxEdid, 'ACTI');
         if(not assigned(baseObj)) then begin
-            AddMessage('Didn''t find any activator with EditorID '+heightHelperBoxEdid+', skipping');
+            AddMessage('Didn''t find any activator with EditorID '+heightHelperBoxEdid+', skipping helper boxes.');
             exit;
         end;
         AddMessage('Loading helper boxes with EditorID '+heightHelperBoxEdid);
@@ -2864,7 +2847,7 @@ unit WorkshopBorder;
         boxes := getLinkedRefChildren(wsRef, primitiveLinkKw);
         if(boxes.count = 0) then begin
             if(debugMode) then begin
-                AddMessage('Found no building area boxes, nothing to do.');
+                AddMessage('Found no building area boxes for '+Name(wsRef)+', nothing to do.');
             end;
             boxes.free();
             exit;
@@ -2884,7 +2867,6 @@ unit WorkshopBorder;
         AddMessage('Building 2D polygon out of '+IntToStr(boxes.count)+' build area primitives.');
         for i:=0 to boxes.count-1 do begin
             addBox(ObjectToElement(boxes[i]));
-            // if(i >= 1) then break; // DEBUG
         end;
 
         // AddMessage('Output='+currentPolygon.toString());
