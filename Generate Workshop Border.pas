@@ -360,6 +360,9 @@ unit WorkshopBorder;
         if(width < 0) then width := width * -1;
         if(height < 0) then height := height * -1;
 
+        if(width = 0) then width := 10;
+        if(height = 0) then height := 10;
+
         // now scale it somewhat
         // scale = 1024 = targetWidth
         if(width > height) then begin
@@ -836,8 +839,13 @@ unit WorkshopBorder;
             // fill
             AddMessage('Loading terrain from '+IntToStr(cellX)+'/'+IntToStr(cellY));
             cellHeightmap := getCellHeightmap(cellX, cellY, worldSpace);
-            if(debugMode) then begin
-                writeSvgHeightmap(cellHeightmap, 'cell_'+indexX+'_'+indexY+'.svg');
+            if(cellHeightmap.count = 0) then begin
+                AddMessage('Failed to load terrain for '+FloatToStr(globalX)+'/'+FloatToStr(globalY)+', returning 0');
+                Result := 0;
+            end else begin
+                if(debugMode) then begin
+                    writeSvgHeightmap(cellHeightmap, 'cell_'+indexX+'_'+indexY+'.svg');
+                end;
             end;
             // AddMessage('cellHeightmap='+cellHeightmap.toString());
             cellHeights.O[indexX].O[indexY] := cellHeightmap;
@@ -932,7 +940,7 @@ unit WorkshopBorder;
             Result := cell;
             exit;
         end;
-        AddMessage('ERROR: FAILED to get cell '+IntToStr(gridX)+'/'+IntToStr(gridY)+' in worldspace '+FullPath(ws);
+        AddMessage('ERROR: FAILED to get cell '+IntToStr(gridX)+'/'+IntToStr(gridY)+' in worldspace '+FullPath(ws));
     end;
 
     {
@@ -1451,11 +1459,19 @@ unit WorkshopBorder;
         // j := numVerts-1;
         for i:=0 to polygonEdges.count-1 do begin
             curEdge := polygonEdges.O[i];
+            {
+            // try this shortcut
+            if(isPointOnEdgeFloats(curEdge, testX, testY)) then begin
+                Result := false;
+                exit;
+            end;
+            }
             curX := curEdge.O['a'].F['x']; // vertx[i]
             curY := curEdge.O['a'].F['y']; // verty[i]
 
             prevX := curEdge.O['b'].F['x']; // vertx[j]
             prevY := curEdge.O['b'].F['y']; // verty[j]
+
 
             if ((curY>testY) <> (prevY>testY)) then begin
                 // separating it, because xedit can't shortcut ifs
@@ -1464,8 +1480,73 @@ unit WorkshopBorder;
                 end;
             end;
 
+
            // j := i;
             //i := i + 1;
+        end;
+    end;
+
+    function isPointOnOrInPolygonEdges(polygonEdges: TJsonArray; testX, testY: float): boolean;
+    var
+        i, j, numVerts: integer;
+        curX, curY: float;
+        prevX, prevY: float;
+        curEdge: TJsonObject;
+    begin
+        //numVerts := polygonPoints.count;
+        Result := false;
+        // ported version of this:
+        //https://wrfranklin.org/Research/Short_Notes/pnpoly.html
+
+        // i = 0;
+        // j := numVerts-1;
+        for i:=0 to polygonEdges.count-1 do begin
+            curEdge := polygonEdges.O[i];
+
+            // try this shortcut
+            if(isPointOnEdgeFloats(curEdge, testX, testY)) then begin
+                Result := true;
+                exit;
+            end;
+
+            curX := curEdge.O['a'].F['x']; // vertx[i]
+            curY := curEdge.O['a'].F['y']; // verty[i]
+
+            prevX := curEdge.O['b'].F['x']; // vertx[j]
+            prevY := curEdge.O['b'].F['y']; // verty[j]
+
+
+            if ((curY>testY) <> (prevY>testY)) then begin
+                // separating it, because xedit can't shortcut ifs
+                if (testX < (prevX-curX) * (testy-curY) / (prevY-curY) + curX) then begin
+                    Result := (not Result);
+                end;
+            end;
+
+
+           // j := i;
+            //i := i + 1;
+        end;
+    end;
+
+    function isPointOnPolygonEdges(polygonEdges: TJsonArray; testX, testY: float): boolean;
+    var
+        i, j, numVerts: integer;
+        curX, curY: float;
+        prevX, prevY: float;
+        curEdge: TJsonObject;
+    begin
+
+        Result := false;
+
+        for i:=0 to polygonEdges.count-1 do begin
+            curEdge := polygonEdges.O[i];
+
+            if(isPointOnEdgeFloats(curEdge, testX, testY)) then begin
+                Result := true;
+                exit;
+            end;
+
         end;
     end;
 
@@ -1524,6 +1605,157 @@ unit WorkshopBorder;
         end;
     end;
 
+    function getMinOf4(x1, x2, x3, x4: float): float;
+    begin
+        if(x1 < x2) then begin
+            Result := x1;
+        end else begin
+            Result := x2;
+        end;
+
+        if(x3 < Result) then begin
+            Result := x3;
+        end;
+
+        if(x4 < Result) then begin
+            Result := x4;
+        end;
+    end;
+
+    function getMaxOf4(x1, x2, x3, x4: float): float;
+    begin
+        if(x1 > x2) then begin
+            Result := x1;
+        end else begin
+            Result := x2;
+        end;
+
+        if(x3 > Result) then begin
+            Result := x3;
+        end;
+
+        if(x4 > Result) then begin
+            Result := x4;
+        end;
+    end;
+
+    function isPointOnEdgeFloats(edge: TJsonObject; x, y: float): boolean;
+    var
+        m, t, temp: float;
+    begin
+        Result := false;
+        // y := mx + t
+        // y1 = m*x1 + t
+        // y2 = m*x2 + t
+        // y1 - m*x1 = y2 - m*x2
+        // m*x1 - m*x2 = y1 - y2
+        // m*(x1-x2) = y1-y2
+        // m = (y1-y2)/(x1-x2)
+
+        if(edge.O['a'].F['x'] = edge.O['b'].F['x']) then begin
+            // vertical line
+
+            if(edge.O['a'].F['x'] = x) then begin
+                Result := (edge.O['a'].F['y'] <= y) and (edge.O['b'].F['y'] >= y);
+            end;
+            exit;
+        end;
+
+        if(edge.O['a'].F['y'] = edge.O['b'].F['y']) then begin
+
+            // horizontal line
+            if(edge.O['a'].F['y'] = y) then begin
+                Result := (edge.O['a'].F['x'] <= x) and (edge.O['b'].F['x'] >= x);
+            end;
+            exit;
+        end;
+
+        m := (edge.O['a'].F['y']-edge.O['b'].F['y']) / (edge.O['a'].F['x']-edge.O['b'].F['x']);
+        // t = y1 - m*x1
+        t := edge.O['a'].F['y'] - m*edge.O['a'].F['x'];
+
+        temp := m*x + t;
+        Result := floatEqualsWithTolerance(temp, y, 0.01);
+    end;
+
+    function isPointOnEdge(edge, point: TJsonObject): boolean;
+    begin
+        Result := isPointOnEdgeFloats(edge, point.F['x'], point.F['y']);
+    end;
+
+    function intersectParallelEdges(edge1, edge2: TJsonObject): TJsonObject;
+    var
+        minX, minY, maxX, maxY: float;
+        canContinue, e1aOnEdge, e1bOnEdge, e2aOnEdge, e2bOnEdge: boolean;
+        relevantEdge1Point, relevantEdge2Point: TJsonObject;
+    begin
+        Result := nil;
+
+        e1aOnEdge := isPointOnEdge(edge2, edge1.O['a']);
+        e1bOnEdge := isPointOnEdge(edge2, edge1.O['b']);
+        e2aOnEdge := isPointOnEdge(edge1, edge2.O['a']);
+        e2bOnEdge := isPointOnEdge(edge1, edge2.O['b']);
+
+        if ((not e1aOnEdge) and (not e1bOnEdge)) or ((not e2aOnEdge) and (not e2bOnEdge)) then exit; // they don't touch
+
+        if (e1aOnEdge and e1bOnEdge) or (e2aOnEdge and e2bOnEdge) then exit; // one is completely inside the other
+
+        if(e1aOnEdge) then begin
+            relevantEdge1Point := edge1.O['a'];
+        end else begin
+            relevantEdge1Point := edge1.O['b'];
+        end;
+
+        if(e2aOnEdge) then begin
+            relevantEdge2Point := edge2.O['a'];
+        end else begin
+            relevantEdge2Point := edge2.O['b'];
+        end;
+
+        Result := TJsonObject.create;
+        Result.F['x'] := (relevantEdge1Point.F['x']+relevantEdge2Point.F['x'])/2.0;
+        Result.F['y'] := (relevantEdge1Point.F['y']+relevantEdge2Point.F['y'])/2.0;
+        exit;
+
+        canContinue := isPointOnEdge(edge1, edge2.O['a']) or isPointOnEdge(edge1, edge2.O['b']) ;
+
+        {
+        // do the two actually overlap?
+        // let's check if any of edge2 are within edge1
+        // check if point a of edge2 is on edge1
+        if (edge1.O['a'].F['x'] <= edge2.O['a'].F['x']) and (edge2.O['a'].F['x'] <= edge1.O['b'].F['x']) then begin
+            if (edge1.O['a'].F['y'] <= edge2.O['a'].F['y']) and (edge2.O['a'].F['y'] <= edge1.O['b'].F['y']) then begin
+                canContinue := true;
+            end;
+        end;
+
+        if(not canContinue) then begin
+            // check if point b of edge2 is on edge1
+            if (edge1.O['a'].F['x'] <= edge2.O['b'].F['x']) and (edge2.O['b'].F['x'] <= edge1.O['b'].F['x']) then begin
+                if (edge1.O['a'].F['y'] <= edge2.O['b'].F['y']) and (edge2.O['b'].F['y'] <= edge1.O['b'].F['y']) then begin
+                    canContinue := true;
+                end;
+            end;
+        end;
+        }
+        if(not canContinue) then begin
+            exit;
+        end;
+
+
+
+        minX := getMinOf4(edge1.O['a'].F['x'], edge1.O['b'].F['x'], edge2.O['a'].F['x'], edge2.O['b'].F['x']);
+        minY := getMinOf4(edge1.O['a'].F['y'], edge1.O['b'].F['y'], edge2.O['a'].F['y'], edge2.O['b'].F['y']);
+
+        maxX := getMaxOf4(edge1.O['a'].F['x'], edge1.O['b'].F['x'], edge2.O['a'].F['x'], edge2.O['b'].F['x']);
+        maxY := getMaxOf4(edge1.O['a'].F['y'], edge1.O['b'].F['y'], edge2.O['a'].F['y'], edge2.O['b'].F['y']);
+
+
+        AddMessage('minX='+FloatToSTr(minX)+', minY='+FloatToSTr(minY)+', maxX='+FloatToStr(maxX)+', maxY='+FloatToStr(maxY));
+        Result := TJsonObject.create;
+        Result.F['x'] := (maxX+minX)/2.0;
+        Result.F['y'] := (maxY+minY)/2.0;
+    end;
 
     function intersectEdgeWithEdge(edge1, edge2: TJsonObject): TJsonObject;
     var
@@ -1568,14 +1800,19 @@ unit WorkshopBorder;
 
         temp1 := ( (x4-x3)*(y2-y1) - (y4-y3)*(x2-x1) );
         if(temp1 = 0) then begin
+            // in this case, we seem to have the same incline and be overlapping
+            Result := intersectParallelEdges(edge1, edge2);
+            //AddMessage('Bork intersect: Edge1='+edge1.toString()+', Edge2='+edge2.toString()+', point='+Result.toString());
             exit;
         end;
 
         t := ( (y3-y1)*(x2-x1) - (x3-x1)*(y2-y1) ) / temp1;
 
         if (x2-x1 = 0) then begin
+            // means edge1 is a vertical (in Y direction) line
             if(y2-y1 = 0) then begin
-                // AddMessage('Bork occured');
+                // this shouldn't happen, this would mean, edge1 has zero length
+                AddMessage('ERROR: zero-length edge recieved');
                 exit;
             end;
             s := (y3-y1 + t*(y4-y3)) / (y2-y1);
@@ -1585,8 +1822,8 @@ unit WorkshopBorder;
 
 
         // now s and t must be between 0 and 1
-        if (0 <= s) and (s <= 1) then begin
-            if (0 <= t) and (t <= 1) then begin
+        if (0.0 <= s) and (s <= 1.0) then begin
+            if (0.0 <= t) and (t <= 1.0) then begin
                 // yes
                 xResult := (x1 + s*(x2-x1));
                 yResult := (y1 + s*(y2-y1));
@@ -1637,6 +1874,8 @@ unit WorkshopBorder;
     var
         newEdge: TJsonObject;
     begin
+        // edgecase (huehue): points are identical
+        if(pointsEqual(p1, p2)) then exit;
         //x1, y1, z1, x2, y2, z2: float
         newEdge := edgeArray.addObject();
         newEdge.O['a'].F['x'] := p1.F['x'];
@@ -1751,13 +1990,96 @@ unit WorkshopBorder;
         Result := sqrt(getPointDistanceSq(p1, p2));
     end;
 
+    function getSlope(point1, point2: TJsonObject): string;
+    var
+        m: float;
+    begin
+        if(point1.F['x'] = point2.F['x']) then begin
+            // vertical line
+            // AddMessage('vertical line');
+            Result := 'infinity';
+            exit;
+        end;
+
+        if(point1.F['y'] = point2.F['y']) then begin
+            //AddMessage('horizontal line');
+            // horizontal line
+            Result := '0';
+            exit;
+        end;
+
+        m := (point1.F['y']-point2.F['y']) / (point1.F['x']-point2.F['x']);
+        Result := FormatFloat('0.0000', m);
+    end;
+
+    function pointsEqual(p1, p2: TJsonObject): boolean;
+    begin
+        Result := (floatEquals(p2.F['x'], p1.F['x']) and floatEquals(p2.F['y'], p1.F['y']));
+    end;
+
+    function fixIntersectPoints(points: TJsonArray): TJsonArray;
+    var
+        i, lastI: integer;
+        prevPoint, curPoint: TJsonObject;
+        curX, curY, prevX, prevY: float;
+        prevSlope, curSlope: string;
+        tempResult: TJsonArray;
+    begin
+        tempResult := TJsonArray.create;
+        Result := TJsonArray.create;
+        // first, remove identical
+        prevPoint := points.O[0];
+        appendObjectToArray(tempResult, points.O[0]);
+        for i:=1 to (points.count-1) do begin
+            curPoint := points.O[i];
+            if (not pointsEqual(prevPoint, curPoint)) then begin
+                // add
+                appendObjectToArray(tempResult, points.O[i]);
+            end else begin
+                AddMessage('skipping point 2');
+            end;
+            prevPoint := curPoint;
+        end;
+
+        prevSlope := getSlope(tempResult.O[0], tempResult.O[1]);
+
+        // prepend first
+        curPoint := Result.addObject();
+        curPoint.F['x'] := tempResult.O[0].F['x'];
+        curPoint.F['y'] := tempResult.O[0].F['y'];
+
+        for i:=1 to (tempResult.count-2) do begin
+            curSlope := getSlope(tempResult.O[i], tempResult.O[i+1]);
+            AddMessage('checking points #'+IntToStr(i)+' and #'+IntTOStr(i+1)+' slope '+curSlope);
+
+                // if same sl
+                if(curSlope <> prevSlope) then begin
+                    // add point #i, otherwise skip it
+                    curPoint := Result.addObject();
+                    curPoint.F['x'] := tempResult.O[i].F['x'];
+                    curPoint.F['y'] := tempResult.O[i].F['y'];
+                end else begin
+                    AddMessage('skipping a point');
+                end;
+                prevSlope := curSlope;
+
+        end;
+        // add last
+        lastI := tempResult.count-1;
+        curPoint := Result.addObject();
+        curPoint.F['x'] := tempResult.O[lastI].F['x'];
+        curPoint.F['y'] := tempResult.O[lastI].F['y'];
+
+        tempResult.free();
+    end;
+
     // run this twice, with different order of arguments, to generate two halves, then merge
     procedure mergePolygonsHalf(poly1, poly2, outPoly: TJsonObject);
     var
         i: integer;
         curEdge, isPoint1, isPoint2, isPoint3, newEdge: TJsonObject;
         pointAin, pointBin: boolean;
-        edgesArray, intersectPoints, sortedIntersectPoints: TJsonArray;
+        edgesArray, intersectPoints, sortedIntersectPoints, tmp: TJsonArray;
     begin
         if(debugMode) then begin
             AddMessage('mergePolygonsHalf BEGIN');
@@ -1765,17 +2087,21 @@ unit WorkshopBorder;
         // outArray := TJsonArray.create();
         edgesArray := outPoly.A['edges'];
         // add poly2 to poly1
+        if(debugMode) then begin
+            AddMessage('Adding to poly = '+poly1.toString());
+        end;
         // let's iterate poly2's edges
         for i:=0 to poly2.A['edges'].count - 1 do begin
-            if(debugMode) then begin
-                AddMessage('Checking edge #'+IntToStr(i));
-            end;
             curEdge := poly2.A['edges'].O[i];
+            if(debugMode) then begin
+                AddMessage('Checking edge #'+IntToStr(i)+' = '+curEdge.toString());
+            end;
+
+            intersectPoints := intersectPolyWithEdgeMulti(poly1, curEdge);
 
             pointAin := isPointInPolygonEdges(poly1.A['edges'], curEdge.O['a'].F['x'], curEdge.O['a'].F['y']);
             pointBin := isPointInPolygonEdges(poly1.A['edges'], curEdge.O['b'].F['x'], curEdge.O['b'].F['y']);
 
-            intersectPoints := intersectPolyWithEdgeMulti(poly1, curEdge);
 
             // now: we have curEdge, and n intersectPoints. n should not be > 2
             case (intersectPoints.count) of
@@ -1789,9 +2115,6 @@ unit WorkshopBorder;
 
                         // current edge does not intersect the poly
                         if(pointAin and pointBin) then begin
-                            //intersectPoints.free();
-                            // I hope `continue` doesn't interfere with the `case`
-                            // continue; // both in, skip
                             if(debugMode) then begin
                                 AddMessage(' both in, skipping edge '+curEdge.toString());
                             end;
@@ -1803,8 +2126,11 @@ unit WorkshopBorder;
                             appendObjectToArray(edgesArray, curEdge);
                             // continue;
                         end else begin;
-                            // this shouldn't happen here
-                            AddMessage('!!!ANOMALY: Edge doesn''t intersect, but points are halfway? This makes no sense');
+                            // this can happen, sigh. probably if there are parallel lines
+                            // let's try adding it
+                            AddMessage('ANOMALY: Edge doesn''t intersect, but points are halfway. Skipping');
+                            //appendObjectToArray(edgesArray, curEdge);
+                            //AddMessage('!!!ANOMALY: Edge doesn''t intersect, but points are halfway? This makes no sense');
                         end;
                     end;
                 1:  begin
@@ -1824,7 +2150,8 @@ unit WorkshopBorder;
                             end;
                             appendEdge(edgesArray, curEdge.O['a'], isPoint1);
                         end else begin
-                            AddMessage('!!!ANOMALY: one intersect, but pointAin='+BoolToStr(pointAin)+' pointBin='+BoolToStr(pointBin));
+                            // we definitely add the inbetween point. but then what?
+                            AddMessage('ANOMALY: one intersect, but pointAin='+BoolToStr(pointAin)+' pointBin='+BoolToStr(pointBin)+'. Skipping');
                         end;
                     end;
                 else begin
@@ -1845,6 +2172,16 @@ unit WorkshopBorder;
                         if (not pointBin) then begin
                             appendObjectToArray(sortedIntersectPoints, curEdge.O['b']);
                         end;
+                        if ((sortedIntersectPoints.count mod 2) <> 0) then begin
+                            //AddMessage('ERROR: sortedIntersectPoints ended up at an odd length!');
+                            //AddMessage(sortedIntersectPoints.toString());
+                            // trying to do some extras
+                            tmp := fixIntersectPoints(sortedIntersectPoints);
+                            sortedIntersectPoints.free();
+                            sortedIntersectPoints := tmp;
+                            //exit;
+                        end;
+
                         if ((sortedIntersectPoints.count mod 2) <> 0) then begin
                             AddMessage('ERROR: sortedIntersectPoints ended up at an odd length!');
                             exit;
@@ -2010,13 +2347,18 @@ unit WorkshopBorder;
         boxPosAdj.F['z'] := 0;
 
         points := getBoxPoints(boxPosAdj, boxRot, boxSize, false);
-        //AddMessage('points='+points.toString());
+        if(debugMode) then begin
+            AddMessage('box points='+points.toString());
+        end;
 
         edges := getEdgesFromPoints(points);
+
+
 
         curPoly := TJsonObject.create;
         curPoly.A['edges'] := edges;
         //AddMessage('curPoly='+curPoly.toString());
+
 
         if(currentPolygon.count = 0) then begin
             currentPolygon.free();
@@ -2451,7 +2793,7 @@ unit WorkshopBorder;
 
         baseObj := FindObjectByEdidAndSignature(heightHelperBoxEdid, 'ACTI');
         if(not assigned(baseObj)) then begin
-            AddMessage('Didn''t find any activator with EditorID '+heightHelperBoxEdid+', skipping');
+            AddMessage('Didn''t find any activator with EditorID '+heightHelperBoxEdid+', skipping helper boxes.');
             exit;
         end;
         AddMessage('Loading helper boxes with EditorID '+heightHelperBoxEdid);
@@ -2505,7 +2847,7 @@ unit WorkshopBorder;
         boxes := getLinkedRefChildren(wsRef, primitiveLinkKw);
         if(boxes.count = 0) then begin
             if(debugMode) then begin
-                AddMessage('Found no building area boxes, nothing to do.');
+                AddMessage('Found no building area boxes for '+Name(wsRef)+', nothing to do.');
             end;
             boxes.free();
             exit;
@@ -2525,7 +2867,6 @@ unit WorkshopBorder;
         AddMessage('Building 2D polygon out of '+IntToStr(boxes.count)+' build area primitives.');
         for i:=0 to boxes.count-1 do begin
             addBox(ObjectToElement(boxes[i]));
-            // if(i >= 1) then break; // DEBUG
         end;
 
         // AddMessage('Output='+currentPolygon.toString());
