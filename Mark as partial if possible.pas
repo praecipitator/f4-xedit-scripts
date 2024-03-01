@@ -15,7 +15,7 @@
                 - Must not contain precombine-breaking overrides
             - Exteriors:
                 - Never
-            - Worldspace partial cells:
+            - Worldspace persistent cells:
                 - Always
     (Terms like "exists" and "contains" refer to the target plugin only)
 }

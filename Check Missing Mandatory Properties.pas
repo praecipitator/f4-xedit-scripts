@@ -1135,12 +1135,20 @@ unit CheckMissingMandatoryProps;
         i: integer;
         curPropName, curType, curScriptName, curPropDisplayName: string;
         missingList, autoFillList: TJsonObject;
-        script: IInterface;
+        script, baseObj: IInterface;
 
         isScalar, isAlias, isAutofilled, isMandatory: boolean;
 
     begin
         script := getScriptOrFragment(e, scriptName);
+        if(not assigned(script)) then begin
+            // is this a ref?
+            if(isReferenceSignature(Signature(e))) then begin
+                baseObj := pathLinksTo(e, 'NAME');
+                script := getScriptOrFragment(baseObj, scriptName);                
+            end;
+        end;
+        
         if(not assigned(script)) then begin
             AddMessage('Failed to find '+scriptName+' in the object again');
             exit;
@@ -1282,7 +1290,7 @@ unit CheckMissingMandatoryProps;
 
             mandatoryList := getMandatoryProperties(curName);
             if(mandatoryList = nil) then continue;
-
+//procedure processScriptLists(e: IInterface; scriptName: string; elementProps, pexProps: TJsonObject);
             processScriptLists(e, curName, curScriptList.O['properties'], mandatoryList.O['properties']);
 
 

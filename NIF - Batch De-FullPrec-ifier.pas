@@ -3,7 +3,7 @@
     If "Create Backups" is checked, the backups will be created in the same directory as the original, with ".bak" appended.
     If a backup cannot be created, the file will not be overwritten.
     
-    So far, only BSTriShape and BSMeshLODTriShape are processed. If there are more, add them to triShapeTypes in Initialize()
+    So far, only BSTriShape, BSMeshLODTriShape, and BSTriShapeSubIndex are processed. If there are more, add them to triShapeTypes in Initialize()
 }
 unit NifBatchDeFullPrec;
 
@@ -14,6 +14,7 @@ unit NifBatchDeFullPrec;
         configFile = ProgramPath + 'Edit Scripts\NIF - Batch De-FullPrec-ifier.cfg';
 
     var
+        numFiles: integer;
         lastPath: string;
         processingMode: integer; // 0 => single file, 1 => directory, 2 => directory recursive
         makeBackup: boolean;
@@ -176,7 +177,7 @@ unit NifBatchDeFullPrec;
             //dfFloatDecimalDigits := 6; // do I need this?
 
             Nif.LoadFromFile(nifPath);
-            AddMessage('Processing file '+nifPath);
+            // AddMessage('Processing file '+nifPath);
             numTriShapes := 0;
 
             test := Nif.BlocksCount;
@@ -217,7 +218,9 @@ unit NifBatchDeFullPrec;
             end;
 
             if(numTriShapes > 0) then begin
-                AddMessage(' -> Processed '+IntToStr(numTriShapes)+' TriShapes');
+                numFiles := numFiles + 1;
+                // AddMessage('File '+nifPath+' modified');
+                AddMessage('Processed file '+nifPath+' with '+IntToStr(numTriShapes)+' TriShapes');
 
                 canContinue := true;
                 if(makeBackup) then begin
@@ -231,8 +234,8 @@ unit NifBatchDeFullPrec;
                     Nif.SaveToFile(nifPath);
                     AddMessage(' -> File saved.');
                 end;
-            end else begin
-                AddMessage(' -> Nothing to do.');
+            // end else begin
+            //    AddMessage(' -> Nothing to do.');
 
             end;
         finally
@@ -278,6 +281,8 @@ unit NifBatchDeFullPrec;
         i, xOffset, yOffset: integer;
     begin
         loadConfig();
+        
+        numFiles := 0;
 
         triShapeTypes := TStringList.create();
         triShapeTypes.CaseSensitive := false;
@@ -371,12 +376,14 @@ unit NifBatchDeFullPrec;
 
                     if(cmbMode.ItemIndex = 0) then begin
                         if(FileExists(edSrc.Text )) then begin
+                            AddMessage('Processing single nif '+edSrc.Text);
                             ProcessNif( edSrc.Text );
                         end else begin
                             AddMessage('Error: '+ edSrc.Text +' doesn''t exist!');
                         end;
                     end else begin
                         if(DirectoryExists(edSrc.Text)) then begin
+                            AddMessage('Processing directory '+edSrc.Text+', recursive: '+BoolToStr(cmbMode.ItemIndex = 2));
                             ProcessDirectory(edSrc.Text, cmbMode.ItemIndex = 2);
                         end else begin
                             AddMessage('Error: '+ edSrc.Text +' doesn''t exist!');
@@ -389,13 +396,14 @@ unit NifBatchDeFullPrec;
             frm.Free;
         end;
 
-        Result := 1;
+        Result := 0;
     end;
 
     function Finalize: integer;
     begin
         Result := 0;
         triShapeTypes.free();
+        AddMessage(IntToStr(numFiles)+' files processed.');
     end;
 
 end.

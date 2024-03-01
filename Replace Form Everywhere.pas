@@ -8,6 +8,7 @@ unit ReplaceFormEverywhere;
     uses praUtil;
     const
         replaceMapFile = ProgramPath + 'Edit Scripts\replace-map.txt';
+        createIfMissing = false;
     var
         StrReplace: string;
 
@@ -15,20 +16,32 @@ unit ReplaceFormEverywhere;
 
         replaceMap: TStringList;
         replaceMapVals: TStringList;
+        
+    
 
     function registerReplacement(key: String; val: String): boolean;
     var
         i :Integer;
-        curObj:IInterface;
+        objSearch, curObj:IInterface;
         // obj: TObject;
     begin
         Result := true;
+        objSearch := findObjectByEdid(key);
+        if(not assigned(objSearch)) then begin
+            AddMessage('WARN: can''t find object for search key '+key+', skipping');
+            exit;
+        end;
         curObj := findObjectByEdid(val);
         if(not assigned(curObj)) then begin
-            AddMessage('ERROR: found no element with ID '+val);
-            //halt;
-            Result := false;
-            exit;
+            if(createIfMissing) then begin
+                curObj := wbCopyElementToFile(objSearch, fileToDo, true, true);
+                SetElementEditValues(curObj, 'EDID', val);
+            end else begin;
+                AddMessage('ERROR: found no element with ID '+val);
+                //halt;
+                Result := false;
+                exit;
+            end;
         end;
 
         i := replaceMap.indexOf(key);

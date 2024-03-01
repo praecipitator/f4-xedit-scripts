@@ -2,7 +2,7 @@
     Scans all the files you run this on, and generates a CSV containing all the Addon Nodes it found.
     You will be asked where to save the CSV.
 }
-unit userscript;
+unit ListAllAddonNodes;
     var
         outData: TStringList;
         targetFile: string;

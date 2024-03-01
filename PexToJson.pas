@@ -1,12 +1,11 @@
 {
-    Poor man's PEX "decompiler".
-    Doesn't actually fully decompile it, but provides some info about the pex
+    Poor man's PEX "decompiler" (more of a disassembler)
 
     Sources:
         - http://f4se.silverlock.org/
-            The source code of scriptdump
+            The source code of scriptdump was the basis for most of this.
         - https://en.uesp.net/wiki/Tes5Mod:Compiled_Script_File_Format
-            (Kinda, that is for Skyrim, F4 is similar, but different)
+            More of a honorable mention, since it's for Skyrim, which is sufficiently different.
 
     Usage:
         - call either readPexResource, pexReadFile, or pexReadStream. It will return a TJsonObject. Clean it up manually.
@@ -48,11 +47,11 @@
         - "variables": array of PEXVariable
         - "properties": array of PEXProperty
         - "states": array of PEXState
-        
+
     PEXStruct structure:
         - "name": string
         - "members": array of PEXStructMember
-        
+
     PEXStructMember structure:
         - "name": string
         - "type": string
@@ -92,12 +91,21 @@
             - "flags": int
             - "params": PEXParam
             - "locals": PEXParam
-        This doesn't contain any actual code of the function
-        
+        - "code": array of PEXCode
+
+    PEXCode structure:
+        - "op": string
+            the opcode name, see `function GetOpname` for full list
+        - "args": array of PEXValue
+
     PEXParam structure:
         - "name": string
         - "type": string
 
+    PEXValue structure:
+        - "name": string
+        - "type": string
+            one of "null" "identifier" "string" "integer" "float" "bool"
 }
 unit PexToJson;
     const
@@ -110,8 +118,11 @@ unit PexToJson;
 
     var
         pexStringTable: TStringList;
+        scriptTypeBlackList: TStringList;
         pexBr: TBinaryReader;
         pexCurrentStream: TStream;
+
+
 
     function readPexScriptName(scriptName: string): TJsonObject;
 	begin
@@ -208,9 +219,282 @@ unit PexToJson;
         _pexCleanUp();
     end;
 
+    {
+        analyzes a previously parsed pex, and returns a list of all script names which are used in it.
+    }
+    function getUsedScripts(pexJson: TJsonObject): TStringList;
+    var
+        i: integer;
+        curObj: TJsonObject;
+    begin
+        createBlackList();
+        Result := TStringList.create;
+        Result.Duplicates := dupIgnore;
+        Result.CaseSensitive := false;
+        Result.Sorted := true;
+        for i:=0 to pexJson.A['objects'].count-1 do begin
+            curObj := pexJson.A['objects'].O[i];
+
+            addScriptToList(Result, curObj.S['extends']);
+            // structs
+            addScriptsFromStructs(Result, curObj.A['structs']);
+            // variables
+            addScriptsFromVariables(Result, curObj.A['variables']);
+            // props, they are similar enough
+            addScriptsFromVariables(Result, curObj.A['properties']);
+
+            // the hard part, aka states
+            addScriptsFromStates(Result, curObj.A['states']);
+
+        end;
+        cleanupBlackList();
+    end;
+
     // ==========================================================================
     // === END of "public" functions. Please do not call anything below manually.
     // ==========================================================================
+
+    procedure createBlackList();
+    begin
+        scriptTypeBlackList := TStringList.create;
+        scriptTypeBlackList.Duplicates := dupIgnore;
+        scriptTypeBlackList.CaseSensitive := false;
+        scriptTypeBlackList.Sorted := true;
+
+        scriptTypeBlackList.add('float');
+        scriptTypeBlackList.add('int');
+        scriptTypeBlackList.add('string');
+        scriptTypeBlackList.add('bool');
+        scriptTypeBlackList.add('var');
+        scriptTypeBlackList.add('none');
+        scriptTypeBlackList.add('debug');
+        scriptTypeBlackList.add('f4se');
+        scriptTypeBlackList.add('game');
+        scriptTypeBlackList.add('input');
+        scriptTypeBlackList.add('inputenablelayer');
+        scriptTypeBlackList.add('instancedata');
+        scriptTypeBlackList.add('math');
+        scriptTypeBlackList.add('ui');
+        scriptTypeBlackList.add('utility');
+        scriptTypeBlackList.add('shout');
+        scriptTypeBlackList.add('wordofpower');
+        scriptTypeBlackList.add('leveledspell');
+        scriptTypeBlackList.add('scroll');
+        scriptTypeBlackList.add('soulgem');
+        scriptTypeBlackList.add('scriptobject');
+        scriptTypeBlackList.add('form');
+        scriptTypeBlackList.add('objectreference');
+        scriptTypeBlackList.add('actor');
+        scriptTypeBlackList.add('alias');
+        scriptTypeBlackList.add('referencealias');
+        scriptTypeBlackList.add('locationalias');
+        scriptTypeBlackList.add('refcollectionalias');
+        scriptTypeBlackList.add('activemagiceffect');
+        scriptTypeBlackList.add('action');
+        scriptTypeBlackList.add('activator');
+        scriptTypeBlackList.add('flora');
+        scriptTypeBlackList.add('furniture');
+        scriptTypeBlackList.add('talkingactivator');
+        scriptTypeBlackList.add('actorbase');
+        scriptTypeBlackList.add('actorvalue');
+        scriptTypeBlackList.add('ammo');
+        scriptTypeBlackList.add('armor');
+        scriptTypeBlackList.add('associationtype');
+        scriptTypeBlackList.add('book');
+        scriptTypeBlackList.add('camerashot');
+        scriptTypeBlackList.add('cell');
+        scriptTypeBlackList.add('class');
+        scriptTypeBlackList.add('combatstyle');
+        scriptTypeBlackList.add('component');
+        scriptTypeBlackList.add('container');
+        scriptTypeBlackList.add('door');
+        scriptTypeBlackList.add('defaultobject');
+        scriptTypeBlackList.add('effectshader');
+        scriptTypeBlackList.add('enchantment');
+        scriptTypeBlackList.add('encounterzone');
+        scriptTypeBlackList.add('equipslot');
+        scriptTypeBlackList.add('explosion');
+        scriptTypeBlackList.add('faction');
+        scriptTypeBlackList.add('formlist');
+        scriptTypeBlackList.add('globalvariable');
+        scriptTypeBlackList.add('hazard');
+        scriptTypeBlackList.add('headpart');
+        scriptTypeBlackList.add('holotape');
+        scriptTypeBlackList.add('idle');
+        scriptTypeBlackList.add('idlemarker');
+        scriptTypeBlackList.add('imagespacemodifier');
+        scriptTypeBlackList.add('impactdataset');
+        scriptTypeBlackList.add('ingredient');
+        scriptTypeBlackList.add('instancenamingrules');
+        scriptTypeBlackList.add('keyword');
+        scriptTypeBlackList.add('locationreftype');
+        scriptTypeBlackList.add('leveledactor');
+        scriptTypeBlackList.add('leveleditem');
+        scriptTypeBlackList.add('leveledspell');
+        scriptTypeBlackList.add('light');
+        scriptTypeBlackList.add('location');
+        scriptTypeBlackList.add('magiceffect');
+        scriptTypeBlackList.add('message');
+        scriptTypeBlackList.add('miscobject');
+        scriptTypeBlackList.add('constructibleobject');
+        scriptTypeBlackList.add('key');
+        scriptTypeBlackList.add('soulgem');
+        scriptTypeBlackList.add('musictype');
+        scriptTypeBlackList.add('objectmod');
+        scriptTypeBlackList.add('outfit');
+        scriptTypeBlackList.add('outputmodel');
+        scriptTypeBlackList.add('package');
+        scriptTypeBlackList.add('perk');
+        scriptTypeBlackList.add('potion');
+        scriptTypeBlackList.add('projectile');
+        scriptTypeBlackList.add('quest');
+        scriptTypeBlackList.add('race');
+        scriptTypeBlackList.add('scene');
+        scriptTypeBlackList.add('scroll');
+        scriptTypeBlackList.add('shaderparticlegeometry');
+        scriptTypeBlackList.add('shout');
+        scriptTypeBlackList.add('sound');
+        scriptTypeBlackList.add('soundcategory');
+        scriptTypeBlackList.add('soundcategorysnapshot');
+        scriptTypeBlackList.add('spell');
+        scriptTypeBlackList.add('static');
+        scriptTypeBlackList.add('movablestatic');
+        scriptTypeBlackList.add('terminal');
+        scriptTypeBlackList.add('textureset');
+        scriptTypeBlackList.add('topic');
+        scriptTypeBlackList.add('topicinfo');
+        scriptTypeBlackList.add('visualeffect');
+        scriptTypeBlackList.add('voicetype');
+        scriptTypeBlackList.add('watertype');
+        scriptTypeBlackList.add('weapon');
+        scriptTypeBlackList.add('weather');
+        scriptTypeBlackList.add('wordofpower');
+        scriptTypeBlackList.add('worldspace');
+    end;
+
+    procedure cleanupBlackList();
+    begin
+        scriptTypeBlackList.free();
+        scriptTypeBlackList := nil;
+    end;
+
+    function isBuiltInType(typeStr: string): boolean;
+    var
+        typeLc: string;
+    begin
+        Result := (scriptTypeBlackList.indexOf(typeStr) >= 0);
+
+
+    end;
+
+    procedure addScriptToList(outList: TStringList; typeStr: string);
+    var
+        prefix, suffix: string;
+        hashPos: integer;
+    begin
+
+        if (typeStr = '') or isBuiltInType(typeStr) then begin
+            exit;
+        end;
+
+        suffix := copy(typeStr, length(typeStr)-1, 2); // returns the last two chars
+        if(suffix = '[]') then begin
+            prefix := copy(typeStr, 1, length(typeStr)-2); // cuts off the last two chars
+
+            addScriptToList(outList, prefix);
+            exit;
+
+            //if (prefix = '') or isBuiltInType(prefix) then begin
+                //exit;
+            //end;
+            //outList.Add(prefix);
+        end;
+
+        hashPos := Pos('#', typeStr);
+        if(hashPos > 0) then begin
+            // cut it
+            prefix := copy(typeStr, 1, hashPos-1);
+            addScriptToList(outList, prefix);
+            exit;
+        end;
+
+        outList.Add(typeStr);
+    end;
+
+    procedure addScriptsFromStates(outList: TStringList; states: TJsonArray);
+    var
+        i, j: integer;
+        curFunc: TJsonObject;
+        functions: TJsonArray;
+    begin
+        for i:=0 to states.count-1 do begin
+
+            functions := states.O[i].A['functions'];
+            for j:=0 to functions.count-1 do begin
+                curFunc := functions.O[j];
+
+                // params
+                addScriptsFromVariables(outList, curFunc.O['data'].A['params']);
+                // locals
+                addScriptsFromVariables(outList, curFunc.O['data'].A['locals']);
+                // code
+                addScriptsFromCode(outList, curFunc.O['data'].A['code']);
+            end;
+        end;
+    end;
+
+    procedure addScriptsFromCode(outList: TStringList; code: TJsonArray);
+    var
+        i: integer;
+        curEntry, curArg: TJsonObject;
+        curOp: string;
+    begin
+        for i:=0 to code.count-1 do begin
+            curEntry := code.O[i];
+            curOp := curEntry.S['op'];
+            // only check "callstatic" and "is"
+            if(curOp = 'callstatic') then begin
+                //AddMessage('Found a callstatic');
+                // NSS* -> the first N arg is the name
+                curArg := curEntry.A['args'].O[0];
+                addScriptToList(outList, curArg.S['value']);
+            end else if (curOp = 'is') then begin
+                // SAT -> third T arg
+                curArg := curEntry.A['args'].O[2];
+                addScriptToList(outList, curArg.S['value']);
+            end;
+        end;
+    end;
+
+    procedure addScriptsFromVariables(outList: TStringList; vars: TJsonArray);
+    var
+        i: integer;
+        members: TJsonArray;
+        curType: string;
+    begin
+        for i:=0 to vars.count-1 do begin
+            curType := vars.O[i].S['type'];
+            addScriptToList(outList, curType);
+        end;
+    end;
+
+    // for getUsedScripts begin
+    procedure addScriptsFromStructs(outList: TStringList; structs: TJsonArray);
+    var
+        i, j: integer;
+        members: TJsonArray;
+        curType: string;
+    begin
+        for i:=0 to structs.count-1 do begin
+            // we care about the types of the members
+            members := structs.O[i].A['members'];
+            for j:=0 to members.count-1 do begin
+                curType := members.O[j].S['type'];
+                addScriptToList(outList, curType);
+            end;
+        end;
+    end;
+    // for getUsedScripts end
 
     // TODO: also port checkScriptExtends and findScriptInElementByName
 
@@ -563,7 +847,7 @@ unit PexToJson;
     function _pexReadFunction(appendTo: TJsonArray): TJsonObject;
     var
         i, returnTypeIndex, dockIndex, userFlags, flags, numParams, codeLength: cardinal;
-        params, locals: TJsonArray;
+        params, locals, code: TJsonArray;
         curObj: TJsonObject;
     begin
         if(nil <> appendTo) then begin
@@ -597,47 +881,84 @@ unit PexToJson;
             _pexReadParam(locals);
         end;
 
+
+        code := Result.A['code'];
         codeLength := pexBr.ReadUInt16();
         // AddMessage('codeLength: '+IntToStr(codeLength));
         // unfortunately it seems like we can't calculate how much code to skip
         for i:=0 to codeLength-1 do begin
-            _pexReadCode();
+            _pexReadCode(code);
         end;
 
     end;
 
-    procedure _pexReadCode(); // not returning anything, since I only want to skip over
+    function _pexReadCode(appendTo: TJsonArray): TJsonObject;
     var
         opcode, numArgs, i, j, curValue: cardinal;
-        argDesc, firstChar: string;
+        argDesc, curChar, opName: string;
         varVal, varVal2: TJsonObject;
+        args, tempArgs: TJsonArray;
     begin
-        // basically I only want to figure out what I need in order to skip over it
+        if(nil <> appendTo) then begin
+            Result := appendTo.addObject();
+        end else begin
+            Result := TJsonObject.create;
+        end;
+
         opcode := pexBr.ReadByte();
         if(opcode > 46) then begin
             AddMessage('Invalid opcode '+IntToStr(opcode)+', this means the data might be borked...');
             exit;
         end; // invalid opcode
 
-        argDesc := GetOpArgDesc(opcode);
-        numArgs := length(argDesc);
-        for i:=0 to numArgs-1 do begin
-            varVal := _pexReadVarValue();
-            firstChar := copy(argDesc, i+1, 1);
-            // AddMessage('char #'+IntToStr(i)+' of '+argDesc+' is '+firstChar);
-            if(firstChar = '*') then begin
+        // so here, we have an opcode, and N arguments.
+        // the nr of arguments is length of argDesc, unless one is a *.
+        // The * doesn't count as an argument, but it must be of type integer, and it's value
+        // is the number of varargs.
 
+        opName := GetOpname(opcode);
+        Result.S['op'] := opName;
+
+        args := Result.A['args'];
+        argDesc := GetOpArgDesc(opcode);
+
+
+        // tempArgs := TJsonArray.create;
+        numArgs := length(argDesc); // this seems to be the "default" length of arguments
+        for i:=0 to numArgs-1 do begin
+            varVal := _pexReadVarValue(nil);
+            curChar := copy(argDesc, i+1, 1);
+            // AddMessage('char #'+IntToStr(i)+' of '+argDesc+' is '+firstChar);
+            if(curChar = '*') then begin
+                // remove cur arg
+                // args.remove(args.count-1);
                 if(varVal.S['type'] = 'integer') then begin
 
                     curValue := varVal.I['value'];
                     for j:=0 to curValue-1 do begin
-                        varVal2 := _pexReadVarValue();
-                        varVal2.free();
+                        varVal2 := _pexReadVarValue(args);
+                        varVal2.S['argCode'] := curChar;
+                        //appendObjectToArray(args, varVal2);
+                        //varVal2.free();
                     end;
                 end;
+                varVal.free();
+            end else begin
+                varVal2 := appendObject(args, varVal);
+                varVal2.S['argCode'] := curChar;
+                //args.addObject();
+                //args.A[args.count-1] := varVal;
             end;
-            varVal.free();
         end;
+    end;
+
+    procedure appendObject(arr: TJsonArray; obj: TJsonObject);
+    var
+        newIndex: integer;
+    begin
+        newIndex := arr.count;
+        arr.addObject();
+        arr.O[newIndex]:= obj;
     end;
 
     function _pexReadParam(appendTo: TJsonArray): TJsonObject;
@@ -677,7 +998,7 @@ unit PexToJson;
         Result.S['type'] := _pexGetStringTableEntry(typeIndex);
         Result.U['userFlags'] := userFlags;
 
-        Result.O['value'] := _pexReadVarValue();
+        Result.O['value'] := _pexReadVarValue(nil);
         constFlag := pexBr.ReadByte();
         Result.B['const'] := (constFlag <> 0);
         {
@@ -722,7 +1043,7 @@ unit PexToJson;
             //AddMessage('member: '+IntToStr(memberNameIndex)+' '+_pexGetStringTableEntry(memberNameIndex));
             //AddMessage('type: '++IntToStr(memberTypeNameIndex)+' '+_pexGetStringTableEntry(memberTypeNameIndex));
             //AddMessage('memberFlags: '+IntToStr(memberFlags));
-            curMember.O['value'] := _pexReadVarValue();
+            curMember.O['value'] := _pexReadVarValue(nil);
 
             constFlag := pexBr.readByte();
             curMember.B['const'] := (constFlag <> 0);
@@ -743,13 +1064,18 @@ unit PexToJson;
         Result := 0;
     end;
 
-    function _pexReadVarValue(): TJsonObject;
+    function _pexReadVarValue(appendTo: TJsonArray): TJsonObject;
     var
         varType, stringIndex, uintVar, prevPos: cardinal;
         intVar: integer;
         floatVar: float;
     begin
-        Result := TJsonObject.create;
+        if(nil <> appendTo) then begin
+            Result := appendTo.addObject();
+        end else begin
+            Result := TJsonObject.create;
+        end;
+
         varType := pexBr.readByte();
         case varType of
             0: // null?
@@ -885,9 +1211,79 @@ unit PexToJson;
         pexCurrentStream.position := pexCurrentStream.position+num;
     end;
 
+    function GetOpname(op: cardinal): string;
+    begin
+        Result := 'invalid';
+        case op of
+             0: Result := 'nop';
+             1: Result := 'iadd';
+             2: Result := 'fadd';
+             3: Result := 'isub';
+             4: Result := 'fsub';
+             5: Result := 'imul';
+             6: Result := 'fmul';
+             7: Result := 'idiv';
+             8: Result := 'fdiv';
+             9: Result := 'imod';
+            10: Result := 'not';
+            11: Result := 'ineg';
+            12: Result := 'fneg';
+            13: Result := 'assign';
+            14: Result := 'cast';
+            15: Result := 'cmp_eq';
+            16: Result := 'cmp_lt';
+            17: Result := 'cmp_le';
+            18: Result := 'cmp_gt';
+            19: Result := 'cmp_ge';
+            20: Result := 'jmp';
+            21: Result := 'jmpt';
+            22: Result := 'jmpf';
+            23: Result := 'callmethod';
+            24: Result := 'callparent';
+            25: Result := 'callstatic';
+            26: Result := 'return';
+            27: Result := 'strcat';
+            28: Result := 'propget';
+            29: Result := 'propset';
+            30: Result := 'array_create';
+            31: Result := 'array_length';
+            32: Result := 'array_getelement';
+            33: Result := 'array_setelement';
+            34: Result := 'array_findelement';
+            35: Result := 'array_rfindelement';
+            36: Result := 'is';
+            37: Result := 'struct_create';
+            38: Result := 'struct_get';
+            39: Result := 'struct_set';
+            40: Result := 'array_findstruct';
+            41: Result := 'array_rfindstruct';
+            42: Result := 'array_add';
+            43: Result := 'array_insert';
+            44: Result := 'array_removelast';
+            45: Result := 'array_remove';
+            46: Result := 'array_clear';
+        end;
+        {
+
+        }
+
+    end;
+
     function GetOpArgDesc(op: cardinal): string;
     begin
         Result := nil;
+        // I have no idea what these letters mean. except *, that means "integer value contains the number of variable arguments"
+
+        // S = Subject? or this might be what the op assigns the result to. or operates on?
+        // L = Location to jump to?
+        // I = Integer
+        // F = Float
+        // A = Bool
+        // Q = String
+        // u = unsigned int? only used by array_create
+        // N = Identifier which is something like a function/class/struct name
+        // T = Type
+        // * = vararg, I think these can only be IFAQN
         case op of
              0: Result := '';			// 00
              1: Result := 'SII';
@@ -939,7 +1335,4 @@ unit PexToJson;
         end;
 
     end;
-
-
-
 end.

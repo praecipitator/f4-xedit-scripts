@@ -2,7 +2,7 @@
     Collect all the assets!
 }
 unit CollectAssets;
-    uses PraUtil, PexParser;
+    uses PraUtil, PexToJson;
 
     const
         configFile = ProgramPath + 'Edit Scripts\Collect Assets.cfg';
@@ -324,27 +324,41 @@ unit CollectAssets;
         Result := 'scripts\' + Result + '.pex';
     end;
 
-    procedure processScriptBase(pexPath: string);
-    var
-        curName: string;
-        i:integer;
+    procedure processDecompiledScriptObject(obj: TJsonObject);
     begin
+        AddMessage('Processing '+obj.S['name']);
+        // we need:
+        //  structs: to parse out the types
+        //  variables: dito
+        //  properties: dito
+        //  states: iterate separately
+    end;
 
-        if(not pexReadFile(pexPath)) then begin
-            pexCleanUp();
-            AddMessage('Failed to parse '+pexPath);
-            exit;
+    procedure decompileScript(pexPath: string);
+    var
+        pexData, curObj: TJsonObject;
+        i: integer;
+        outList: TStringList;
+        scriptName: string;
+    begin
+        if(verboseMode) then begin
+            AddMessage('Decompiling '+pexPath);
         end;
+        pexData := readPexResource(pexPath);
+        if(pexData <> nil) then begin
+            outList := getUsedScripts(pexData);
+            for i:=0 to outList.count-1 do begin
+                scriptName := outList[i];
+                processScriptName(scriptName);
+            end;
 
-        for i:=0 to pexExtendedObjects.count-1 do begin
-            curName := pexExtendedObjects[i];
-            if(curName <> '') then begin
-//                AddMessage('Parent name: '+pexExtendedObjects[i]);
-                processScriptName(pexExtendedObjects[i]);
+            outList.free();
+            pexData.free();
+        end else begin
+            if(verboseMode) then begin
+                AddMessage('  Failed to decompile!');
             end;
         end;
-
-        pexCleanUp();
     end;
 
     procedure processScriptName(scriptName: string);
@@ -364,12 +378,11 @@ unit CollectAssets;
 
             if(processResource(pexPath)) then begin
                 if(parseScripts) then begin
-                    processScriptBase(pexPath);
+                    decompileScript(pexPath);
                 end;
             end;
         end;
     end;
-
 
     procedure processScriptElem(script: IInterface);
     var
@@ -1439,22 +1452,20 @@ unit CollectAssets;
                         if ((SameText(curExt, '.wav')) or (SameText(curExt, '.xwm'))) then begin
                             AddMessage('Found a sound file, setting compression to NONE');
                             Result := true;
-                            // FindClose(searchResult);
                             break;
                         end;
 
-
+                        {
                         curExt := ExtractFileExt(searchResult.Name);
 
                         if (SameText(curExt, '.nif')) then begin
                             if (strEndsWith(LowerCase(basePath), 'precombined')) then begin
                                 AddMessage('Found a precombined mesh, setting compression to NONE');
                                 Result := true;
-                                // FindClose(searchResult);
                                 break;
                             end;
                         end;
-
+                        }
                     end;
                 end;
             until (FindNext(searchResult) <> 0);
@@ -1462,8 +1473,6 @@ unit CollectAssets;
             // Must free up resources used by these successful finds
             FindClose(searchResult);
         end;
-
-      //  Result := DirectoryExists(basePath+'sound');
     end;
 
     function finishOutput(): boolean;
