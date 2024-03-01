@@ -324,16 +324,6 @@ unit CollectAssets;
         Result := 'scripts\' + Result + '.pex';
     end;
 
-    procedure processDecompiledScriptObject(obj: TJsonObject);
-    begin
-        AddMessage('Processing '+obj.S['name']);
-        // we need:
-        //  structs: to parse out the types
-        //  variables: dito
-        //  properties: dito
-        //  states: iterate separately
-    end;
-
     procedure decompileScript(pexPath: string);
     var
         pexData, curObj: TJsonObject;

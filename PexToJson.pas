@@ -91,21 +91,29 @@
             - "flags": int
             - "params": PEXParam
             - "locals": PEXParam
-        - "code": array of PEXCode
+        - "code": array of PEXCodeValue
 
     PEXCode structure:
         - "op": string
-            the opcode name, see `function GetOpname` for full list
+            one of "nop", "iadd", "fadd", "isub", "fsub", "imul", "fmul", "idiv", "fdiv", "imod", "not", "ineg", "fneg", "assign", "cast", "cmp_eq", "cmp_lt", "cmp_le", "cmp_gt", "cmp_ge", "jmp", "jmpt", "jmpf", "callmethod", "callparent", "callstatic", "return", "strcat", "propget", "propset", "array_create", "array_length", "array_getelement", "array_setelement", "array_findelement", "array_rfindelement", "is", "struct_create", "struct_get", "struct_set", "array_findstruct", "array_rfindstruct", "array_add", "array_insert", "array_removelast", "array_remove", "array_clear"
         - "args": array of PEXValue
 
     PEXParam structure:
         - "name": string
         - "type": string
+            the actual type as written in the script, custom types will be here, too
 
     PEXValue structure:
         - "name": string
         - "type": string
-            one of "null" "identifier" "string" "integer" "float" "bool"
+            one of "null", "identifier", "string", "integer", "float", "bool"
+
+    PEXCodeValue structure:
+        - "name": string
+        - "type": string
+            one of "null", "identifier", "string", "integer", "float", "bool"
+        - "argCode": string
+            One of "S", "L", "I", "F", "A", "Q", "u", "N", "T", "*"
 }
 unit PexToJson;
     const
@@ -1272,9 +1280,7 @@ unit PexToJson;
     function GetOpArgDesc(op: cardinal): string;
     begin
         Result := nil;
-        // I have no idea what these letters mean. except *, that means "integer value contains the number of variable arguments"
-
-        // S = Subject? or this might be what the op assigns the result to. or operates on?
+        // S = Subject? or this might be what the op assigns the result to. or operates on? But there are more S than one in some...
         // L = Location to jump to?
         // I = Integer
         // F = Float
