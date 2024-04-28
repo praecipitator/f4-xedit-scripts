@@ -1,5 +1,6 @@
 {
     Poor man's PEX "decompiler" (more of a disassembler)
+    Version 2.0
 
     Sources:
         - http://f4se.silverlock.org/
@@ -8,7 +9,7 @@
             More of a honorable mention, since it's for Skyrim, which is sufficiently different.
 
     Usage:
-        - call either readPexResource, pexReadFile, or pexReadStream. It will return a TJsonObject. Clean it up manually.
+        - Call either readPexResource, pexReadFile, or pexReadStream. It will return a TJsonObject. Clean it up manually.
 
     Output Json structure:
         - "header": object
@@ -20,6 +21,12 @@
             - "sourceName": string
             - "userName": string
             - "machineName": string
+        - "debug": object
+            - "timestamp": uint
+                The unix timestamp of when this was compiled.
+            - "functions": array of PEXDebugFunction
+            - "groups": array of PEXDebugGroup
+            - "structs: array of PEXDebugStruct
         - "userFlags": object
             Contains this:
                 "0": "hidden",
@@ -28,9 +35,8 @@
                 "3": "collapsedonref",
                 "4": "collapsedonbase",
                 "5": "mandatory"
-            Essentially the same as th PEX_FLAG_ constants.
-            The 0-5 numbers are the leftshift argument, that is, "5" for "mandatory" means it's actually 1 shl 5 = 32
-            These are also represented by the PEX_FLAG_* constants
+            The 0-5 numbers are the leftshift argument, that is, "5" for "mandatory" means it's actually 1 shl 5 = 32.
+            These are also represented by the PEX_FLAG_* constants.
         - "objects": array of PEXObject
             The objects represent the PEXObjects ("classes") contained within the pex file. Usually only one,
             but it seems like the format supports multiple, too.
@@ -42,7 +48,7 @@
         - "const": bool
         - "userFlags": int
         - "autoStateName": string
-            if no auto state is defined, this will be ""
+            If no auto state is defined, this will be "".
         - "structs": array of PEXStruct
         - "variables": array of PEXVariable
         - "properties": array of PEXProperty
@@ -57,17 +63,17 @@
         - "type": string
         - "userFlags": int
         - "value": PEXValue
-            this represents the default value of the variable
+            This represents the default value of the variable.
         - "const": boolean
         - "docblock": string
 
     PEXVariable structure:
         - "name": string
-            if this begins with "::" and ends with "_var", then it's an auto-generated local variable of a property.
+            If this begins with "::" and ends with "_var", then it's an auto-generated local variable of a property.
         - "type": string
         - "userFlags": int
         - "value": PEXValue
-            this represents the default value of the variable
+            This represents the default value of the variable.
         - "const": bool
 
     PEXProperty structure:
@@ -79,7 +85,7 @@
 
     PEXState structure:
         - "name": string
-            This is "" for the "empty state"
+            This is "" for the "empty state".
         - "functions": array of PEXFunction
 
     PEXFunction structure:
@@ -95,25 +101,58 @@
 
     PEXCode structure:
         - "op": string
-            one of "nop", "iadd", "fadd", "isub", "fsub", "imul", "fmul", "idiv", "fdiv", "imod", "not", "ineg", "fneg", "assign", "cast", "cmp_eq", "cmp_lt", "cmp_le", "cmp_gt", "cmp_ge", "jmp", "jmpt", "jmpf", "callmethod", "callparent", "callstatic", "return", "strcat", "propget", "propset", "array_create", "array_length", "array_getelement", "array_setelement", "array_findelement", "array_rfindelement", "is", "struct_create", "struct_get", "struct_set", "array_findstruct", "array_rfindstruct", "array_add", "array_insert", "array_removelast", "array_remove", "array_clear"
+            One of "nop", "iadd", "fadd", "isub", "fsub", "imul", "fmul", "idiv", "fdiv", "imod", "not", "ineg", "fneg", "assign", "cast", "cmp_eq", "cmp_lt", "cmp_le", "cmp_gt", "cmp_ge", "jmp", "jmpt", "jmpf", "callmethod", "callparent", "callstatic", "return", "strcat", "propget", "propset", "array_create", "array_length", "array_getelement", "array_setelement", "array_findelement", "array_rfindelement", "is", "struct_create", "struct_get", "struct_set", "array_findstruct", "array_rfindstruct", "array_add", "array_insert", "array_removelast", "array_remove", "array_clear".
         - "args": array of PEXValue
 
     PEXParam structure:
         - "name": string
         - "type": string
-            the actual type as written in the script, custom types will be here, too
+            The actual type as written in the script, custom types will be here, too.
 
     PEXValue structure:
         - "name": string
         - "type": string
-            one of "null", "identifier", "string", "integer", "float", "bool"
+            One of "null", "identifier", "string", "integer", "float", "bool".
 
     PEXCodeValue structure:
         - "name": string
         - "type": string
-            one of "null", "identifier", "string", "integer", "float", "bool"
+            One of "null", "identifier", "string", "integer", "float", "bool".
         - "argCode": string
-            One of "S", "L", "I", "F", "A", "Q", "u", "N", "T", "*"
+            One of "S", "L", "I", "F", "A", "Q", "u", "N", "T", "*".
+            
+            
+    PEXDebugFunction structure:
+        - "object": string
+            The object this function belongs to, should be the same as the script name.
+        - "state": string
+            The state in which this function is defined, emptystring if no state.
+        - "function": string
+            The name of the function.
+        - "type": int
+            Unknown.
+        - "lineNumbers": array of integer
+            Seems to be line numbers of the original source file, in the same order as the corresponding instructions in PEXFunction's "code" array?
+        
+    PEXDebugGroup structure:
+        - "object": string
+            The object this group belongs to, should be the same as the script name.
+        - "group": string
+            Name of the property group. Can be empty, as it seems like the default "empty" group is also added here.
+        - "docblock": string
+            The docblock string of this group.
+        - "flags": uint
+            Flags of the group. "collapsed" seems to be 24
+        - "properties": array of string
+            Names of the properties within this group, in the "proper" order.
+            
+    PEXDebugStruct structure:
+        - "object": string
+            The object this struct belongs to, should be the same as the script name.
+        - "struct": string
+            Name of this struct.
+        - "members": array of string
+            Names of the struct members, in the "proper" order.
 }
 unit PexToJson;
     const
@@ -583,33 +622,51 @@ unit PexToJson;
         end;
     end;
 
-    procedure _pexReadDebugFunction();
+    function _pexReadDebugFunction(appendTo: TJsonArray): TJsonObject;
     var
         objectNameIndex, stateNameIndex, functionNameIndex, functionType, instructionCount, i: integer;
+        instructions: TJsonArray;
     begin
+        if(nil <> appendTo) then begin
+            Result := appendTo.addObject();
+        end else begin
+            Result := TJsonObject.create;
+        end;
+
+
         objectNameIndex := pexBr.ReadUInt16();
         stateNameIndex  := pexBr.ReadUInt16();
         functionNameIndex := pexBr.ReadUInt16();
         functionType := pexBr.readByte();
         instructionCount := pexBr.ReadUInt16();
 
-        skipBytes(instructionCount * 2);
-        {
-        AddMessage('objectNameIndex '+pexStringTable[objectNameIndex]+', stateNameIndex '+pexStringTable[stateNameIndex]+', functionNameIndex '+pexStringTable[functionNameIndex]);
-        AddMessage('NumInstr '+IntToStr(instructionCount));
+        //skipBytes(instructionCount * 2);
+        Result.S['object'] := _pexGetStringTableEntry(objectNameIndex);
+        Result.S['state'] := _pexGetStringTableEntry(stateNameIndex);
+        Result.S['function'] := _pexGetStringTableEntry(functionNameIndex);
+        Result.I['type'] := IntToStr(functionType);
+
+        instructions := Result.A['lineNumbers'];
+
+        // AddMessage('objectNameIndex '+pexStringTable[objectNameIndex]+', stateNameIndex '+pexStringTable[stateNameIndex]+', functionNameIndex '+pexStringTable[functionNameIndex]);
+        //AddMessage('NumInstr '+IntToStr(instructionCount));
         for i:=0 to instructionCount-1 do begin
+            instructions.add(pexBr.ReadUInt16());
             // potentially do something with the info? or just skip 2*instructionCount right away?
-            AddMessage('    Line NR: '+IntToStr(pexBr.ReadUInt16()));
+            // AddMessage('    Line NR: '+IntToStr(pexBr.ReadUInt16()));
         end;
-        }
+
     end;
 
-    procedure _pexReadPropertyGroups();
+    function _pexReadPropertyGroups(): TJsonArray;
     var
         cnt, objName, groupName, groupDoc, nameCount, i, j: integer;
         userFlags: cardinal;
         curGroupName: string;
+        curEntry: TJsonObject;
+        propNames: TJsonArray;
     begin
+        Result := TJsonArray.create;
         // Seems to be Groups? taken from the source code of scriptdump.exe from http://f4se.silverlock.org/
         cnt := pexBr.ReadUInt16();
 
@@ -618,6 +675,7 @@ unit PexToJson;
 				exit;
 			end;
 
+            // the names seem to be more UInt16 indices
             objName := pexBr.ReadUInt16();
             if(_isEOF()) then exit;
             groupName := pexBr.ReadUInt16();
@@ -628,64 +686,95 @@ unit PexToJson;
             if(_isEOF()) then exit;
             nameCount := pexBr.ReadUInt16();
 
-            // the names seem to be more UInt16 indices
+            curEntry := Result.addObject();
+            curEntry.S['object'] := _pexGetStringTableEntry(objName);
+            curEntry.S['group'] := _pexGetStringTableEntry(groupName);
+            curEntry.S['docblock'] := _pexGetStringTableEntry(groupDoc);
+            curEntry.U['flags'] := userFlags;
 
-            //skipBytes(nameCount * 2);
-
-
+            propNames := curEntry.A['properties'];
             for j:=0 to nameCount-1 do begin
                 if(_isEOF()) then exit;
 
                 curGroupName := _pexGetStringTableEntry(pexBr.ReadUInt16());
+                propNames.add(curGroupName);
             end;
         end;
     end;
 
-    procedure _pexReadStructOrder();
+    function _pexReadStructOrder(): TJsonArray;
     var
         cnt, i, j, objName, orderName, varCount, curVarName: integer;
+        curObj: TJsonObject;
+        curNames: TJsonArray;
     begin
+        Result := TJsonArray.create;
         // Seems to be structs? taken from the source code of scriptdump.exe from http://f4se.silverlock.org/
         cnt := pexBr.ReadUInt16();
 
         for i:=0 to cnt-1 do begin
             if(_isEOF()) then exit;
+            curObj := Result.addObject();
+
             objName := pexBr.ReadUInt16();
             orderName := pexBr.ReadUInt16();
             varCount := pexBr.ReadUInt16();
 
+            curObj.S['object'] := _pexGetStringTableEntry(objName);
+            curObj.S['struct'] := _pexGetStringTableEntry(orderName);
 
-            skipBytes(varCount * 2);
+            // what are these?
+            // skipBytes(varCount * 2);
+            curNames := curObj.A['members'];
+            for j:=0 to varCount-1 do begin
+                curVarName := pexBr.ReadUInt16();
+                curNames.add(_pexGetStringTableEntry(curVarName));
+            end;
         end;
     end;
 
-    procedure _pexReadDebugInfo();
+    function _pexReadDebugInfo(): TJsonObject;
     var
         hasDebugInfo, modTime1, modTime2, numFuncs, i: integer;
         pexHasDebugInfo: boolean;
+        modTime: cardinal;
+        debugFunctions: TJsonArray;
     begin
+        Result := TJsonObject.create();
         hasDebugInfo := pexBr.readByte();
         //AddMessage('hasDebugInfo '+IntToStr(hasDebugInfo));
         pexHasDebugInfo := (hasDebugInfo <> 0);
 
         // apparently if you don't have debug, it just skips the other fields, and is literally just the one byte?
-        if(pexHasDebugInfo) then begin
-            modTime1 := pexBr.ReadUInt32();
-            modTime2 := pexBr.ReadUInt32();
-            numFuncs := pexBr.ReadUInt16();
-
-            //AddMessage('Num Funcs '+IntToStr(numFuncs));
-
-            for i:=0 to numFuncs-1 do begin
-                //AddMessage('Processing debug func');
-                _pexReadDebugFunction();
-            end;
-            if(_isEOF()) then exit;
-
-            _pexReadPropertyGroups();
-            if(_isEOF()) then exit;
-            _pexReadStructOrder();
+        if(not pexHasDebugInfo) then begin
+            exit;
         end;
+
+        modTime1 := pexBr.ReadUInt32();
+        modTime2 := pexBr.ReadUInt32();
+        numFuncs := pexBr.ReadUInt16();
+
+        // I think I can just (modTime2 << something) + modTime1, and then it's a timestamp
+        // FFFFFFFF
+        // expected:  1707253497 0 -> Tue Feb 06 22:04:57 2024
+
+        modTime := (modTime2 shl $FFFFFFFF) + modTime1;
+        // AddMessage('ModTime: '+IntToStr(modTime));
+        Result.U['timestamp'] := modTime;
+
+        //AddMessage('Num Funcs '+IntToStr(numFuncs));
+        debugFunctions := Result.A['functions'];
+
+        for i:=0 to numFuncs-1 do begin
+            //AddMessage('Processing debug func');
+            _pexReadDebugFunction(debugFunctions);
+        end;
+
+        if(_isEOF()) then exit;
+
+        Result.A['groups'] := _pexReadPropertyGroups();
+        if(_isEOF()) then exit;
+        Result.A['structs'] := _pexReadStructOrder();
     end;
 
     function _pexReadUserFlags(): TJsonObject;
@@ -1167,7 +1256,7 @@ unit PexToJson;
 
     function _pexDoParse(): TJsonObject;
     begin
-        Result := TJsonObject.create;
+        Result := TJsonObject.create();
 
         Result.O['header'] := _pexReadHeader();
         if(_isEOF()) then exit;
@@ -1175,7 +1264,7 @@ unit PexToJson;
         if(_isEOF()) then exit;
         // the next 3 are considered "debug info" by scriptdump
         // maybe I'll write them into the JSON later
-        _pexReadDebugInfo();
+        Result.O['debug'] := _pexReadDebugInfo();
         if(_isEOF()) then exit;
 
         Result.O['userFlags'] := _pexReadUserFlags();

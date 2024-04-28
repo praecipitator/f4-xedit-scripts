@@ -202,11 +202,16 @@ unit NifBatchDeFullPrec;
                         vertexFlags := vertexFlags and (not FLAG_FULL_PREC);
 
                         vertexData := rootBlock.Elements['Vertex Data'];
-                        // super hack: backup the vertices as json string
-                        vertexBackup := vertexData.toJson(vertexData);
-                        vertexDesc.NativeValues['VF'] := vertexFlags;
-                        // restore backup
-                        vertexData.FromJson(vertexBackup);
+                        if(vertexData <> nil) then begin
+                            // super hack: backup the vertices as json string
+                            vertexBackup := vertexData.toJson(vertexData);
+                            vertexDesc.NativeValues['VF'] := vertexFlags;
+                            // restore backup
+                            vertexData.FromJson(vertexBackup);
+                        end else begin
+                            AddMessage('WARN: looks like '+nifPath+' has no vertex data for block '+IntToStr(i));
+                            vertexDesc.NativeValues['VF'] := vertexFlags;
+                        end;
                     end;
                 end;
 

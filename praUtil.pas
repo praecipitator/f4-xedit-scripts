@@ -6,7 +6,7 @@
 unit PraUtil;
     const
         // for version checking
-        PRA_UTIL_VERSION = 12.0;
+        PRA_UTIL_VERSION = 13.1;
 
     const STRING_LINE_BREAK = #13#10;
 
@@ -21,6 +21,75 @@ unit PraUtil;
         JSON_TYPE_BOOL      = 7; // bool
         JSON_TYPE_ARRAY     = 8; // array
         JSON_TYPE_OBJECT    = 9; // object
+
+    const
+        XEDIT_VERSION_404 = $04000400;
+
+    // xEdit stuff
+    {
+        Builds an xEdit version cardinal out of individual parts.
+        "Build" must be a lowercase letter, a-z, or an empty string if no build letter is present. Or a number 0-255, I guess.
+    }
+    function xEditVersionToCardinal(major, minor, release: Cardinal; Build: string): Cardinal;
+    var
+        buildOrd, buildLength: integer;
+        buildChar: char;
+
+    begin
+        Result :=
+            ((major   and $000000FF) shl 24) or
+            ((minor   and $000000FF) shl 16) or
+            ((release and $000000FF) shl  8);
+
+
+        buildLength := Length(Build);
+        if(buildLength >= 1) then begin
+            if(buildLength = 1) then begin
+                // try parsing it as a letter, a-z
+                buildChar := Copy(Build, 1, 1);
+
+                buildOrd := Ord(buildChar);
+
+                // ord(a)=97
+                // ord(z)=122
+
+                if(buildOrd >= 97) and (buildOrd <= 122) then begin
+                    Result := Result + buildOrd - 96;
+                    exit;
+                end;
+            end;
+
+            // if still alive, try to parse Build as a number
+            buildOrd := IntToStr(Build);
+
+            Result := Result + buildOrd and $FF;
+        end;
+    end;
+
+    {
+        Decodes an xEdit version cardinal, like wbVersionNumber, into a string.
+    }
+    function xEditVersionCardinalToString(versionCardinal: cardinal): string;
+    var
+        major, minor, release, build, buildOrd: integer;
+        buildString: string;
+    begin
+        major   := (versionCardinal and $FF000000) shr 24;
+        minor   := (versionCardinal and   $FF0000) shr 16;
+        release := (versionCardinal and     $FF00) shr 8;
+        build   := (versionCardinal and       $FF);
+
+        Result := IntToStr(major) + '.' + IntToStr(minor) + '.' + IntToStr(release);
+
+        if(build > 0) then begin
+            if(build <= 25) then begin
+                buildOrd := build - 1 + 97;
+                Result := Result + Chr(buildOrd);
+            end else begin
+                Result := Result + '.' + IntToStr(build);
+            end;
+        end;
+    end;
 
     // generic stuff
     {
@@ -701,7 +770,7 @@ unit PraUtil;
         firstElem: IInterface;
     begin
         Result := 0;
-        if(wbVersionNumber < 67109888) then begin // what does this magic number mean? WHO KNOWS?! But it's what 4.0.4 returns
+        if(wbVersionNumber < XEDIT_VERSION_404) then begin
             numMasters := MasterCount(theFile);
             relativeFormID := (numMasters shl 24) and $FF000000;
             // this no longer works with xedit 4.0.4
@@ -2867,7 +2936,8 @@ unit PraUtil;
     end;
 
     {
-        For Previsibines: decodes the two-byte string edit value of VISI or PCMB into a proper number
+
+        Decodes the two-byte string edit value of VISI or PCMB into a numeric previsibine timestamp.
     }
     function decodeHexTimestampString(ts: string): cardinal;
     var
@@ -2882,7 +2952,7 @@ unit PraUtil;
     end;
 
     {
-        Transforms a previs timestamp into a string containing two bytes for writing into the cell's edit value of VISI or PCMB
+        Encodes a numeric previsibine timestamp into a string containing two bytes for writing into the cell's edit value of VISI or PCMB.
     }
     function encodeHexTimestampString(ts: cardinal): string;
     var
@@ -2908,17 +2978,27 @@ unit PraUtil;
     end;
 
     {
-        Creates a
+        Converts a previsibine timestamp into a YYYY-MM-DD formatted string.
     }
     function timestampToDate(timestamp: cardinal): string;
     var
         day, month, year: cardinal;
+        dayStr, monthStr: string;
     begin
         day := (timestamp and $1F);
         month := (timestamp and $1E0) shr 5;
         year := ((timestamp and $FE00) shr 9) + 2000;
 
-        Result := IntToStr(year)+'-'+IntToStr(month)+'-'+IntToStr(day);
+        dayStr := IntToStr(day);
+        if(day < 10) then begin
+            dayStr := '0'+dayStr;
+        end;
+        monthStr := IntToStr(month);
+        if(month < 10) then begin
+            monthStr := '0'+monthStr;
+        end;
+
+        Result := IntToStr(year)+'-'+monthStr+'-'+dayStr;
     end;
 
     {
@@ -3259,9 +3339,9 @@ unit PraUtil;
         Result.Text := escapeString(text);
     end;
 
-    function CreateMultilineInput(frm: TForm; left, top, width, height: Integer; text: String): TMemo;
+    function CreateMultilineInput(frm: TForm; left, top, width, height: Integer; text: String): TCustomMemo;
     begin
-        Result := TMemo.Create(frm);
+        Result := TCustomMemo.Create(frm);
         Result.Parent := frm;
         Result.Left := left;
         Result.Top := top;

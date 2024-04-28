@@ -22,6 +22,7 @@ unit MakeSortingPatches;
         fileMap, typeConfigKeys, typeConfigValues: TStringList;
         patcherConfig: TJsonObject;
         keepTheseTags: TStringList;
+        foundItemTypes: TJsonObject;
 
     procedure loadConfig();
     begin
@@ -48,7 +49,7 @@ unit MakeSortingPatches;
         name, baseName: string;
         clbAssets : TCheckListBox;
         hasAtLeastOne: boolean;
-        keepTagsCb, dryRunCb: TCheckBox;
+        keepTagsCb, dryRunCb, dumpTypesCb: TCheckBox;
     begin
         Result := false;
         frm := CreateDialog('Multipatch', 400, 300);
@@ -79,6 +80,9 @@ unit MakeSortingPatches;
 
         dryRunCb := CreateCheckbox(frm, 230, 90, 'Dry-Run Mode');
         dryRunCb.checked := patcherConfig.B['dryRunMode'];
+        
+        dumpTypesCb := CreateCheckbox(frm, 230, 110, 'Dump Types');
+        dumpTypesCb.checked := patcherConfig.B['dumpTypes'];
 
         btnOk     := CreateButton(frm, 100, 240, ' OK ');
         btnCancel := CreateButton(frm, 200, 240, 'Cancel');
@@ -93,6 +97,7 @@ unit MakeSortingPatches;
 
             patcherConfig.B['keepValidTags'] := keepTagsCb.checked;
             patcherConfig.B['dryRunMode'] := dryRunCb.checked;
+            patcherConfig.B['dumpTypes'] := dumpTypesCb.checked;
 
             hasAtLeastOne := false;
             for i:=0 to clbAssets.Items.count-1 do begin
@@ -237,6 +242,7 @@ unit MakeSortingPatches;
 
         keepTheseTags := TStringList.create;
         keepTheseTags.add('[PRA]');
+        foundItemTypes := TJsonObject.create;
     end;
 
     function getArmoType(e: IInterface): string;
@@ -864,7 +870,10 @@ unit MakeSortingPatches;
         typeStr := getItemTypeString(e);
         if(typeStr = '') then exit;
 
-        AddMessage('Item Type: '+EditorID(e)+'='+typeStr);
+        // AddMessage('Item Type: '+EditorID(e)+'='+typeStr);
+        if(patcherConfig.B['dumpTypes']) then begin
+            foundItemTypes.S[EditorID(e)] := typeStr;
+        end;
 
         // now apply it for each file
         for i:=0 to fileMap.count-1 do begin
@@ -886,7 +895,7 @@ unit MakeSortingPatches;
     function Finalize: integer;
     var
         i: integer;
-        taggingName: string;
+        taggingName, curEdid, curType: string;
         curFile: IInterface;
     begin
         for i:=0 to fileMap.count-1 do begin
@@ -894,6 +903,17 @@ unit MakeSortingPatches;
             curFile := ObjectToElement(fileMap.Objects[i]);
             CleanMasters(curFile);
         end;
+        
+        if(patcherConfig.B['dumpTypes']) then begin
+            AddMessage('=== DUMPING TYPES ===');
+            for i:=0 to foundItemTypes.count-1 do begin
+                curEdid := foundItemTypes.Names[i];
+                curType := foundItemTypes.S[curEdid];
+                AddMessage(curEdid+'='+curType);
+            end;
+        end
+        
+        foundItemTypes.free();
 
         Result := 0;
         cleanupTagifier();
