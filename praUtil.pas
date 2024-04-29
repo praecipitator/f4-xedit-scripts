@@ -6,7 +6,7 @@
 unit PraUtil;
     const
         // for version checking
-        PRA_UTIL_VERSION = 13.1;
+        PRA_UTIL_VERSION = 13.2;
 
     const STRING_LINE_BREAK = #13#10;
 
