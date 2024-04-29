@@ -421,7 +421,7 @@ unit GroupWorkbenches;
         Res: TSearchRec;
         name: String;
     begin
-        name := ProgramPath + 'Edit Scripts\known-bnam-keywords.txt';
+        name := ScriptsPath + 'known-bnam-keywords.txt';
         FileAttr := FileGetAttr(name);
         // what is faDirecotry even?
         if FileAttr and faDirectory = 0 then
@@ -439,7 +439,7 @@ unit GroupWorkbenches;
     
     procedure saveKnownBnamFile();
     begin
-        knownWorkbenchKws.SaveToFile(ProgramPath + 'Edit Scripts\known-bnam-keywords.txt');
+        knownWorkbenchKws.SaveToFile(ScriptsPath + 'known-bnam-keywords.txt');
     end;
 
     // Called before processing

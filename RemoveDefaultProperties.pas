@@ -3,7 +3,7 @@
 }
 unit RemoveDefaultProperties;
     const
-        configFile = ProgramPath + 'Edit Scripts\default-value-config.txt';
+        configFile = ScriptsPath + 'default-value-config.txt';
     var
         // couldn't figure out how to do it with just one...
         configKeys: TStringList;

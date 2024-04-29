@@ -43,7 +43,7 @@ unit CheckMissingMandatoryProps;
         SCRIPT_TYPE_REF = 3;      // any ObjectReference, REFR, ACHR, PGRE
         SCRIPT_TYPE_ALIAS = 4;    // any alias from a quest
 
-        configFile = ProgramPath + 'Edit Scripts\Check Missing Mandatory Properties.cfg';
+        configFile = ScriptsPath + 'Check Missing Mandatory Properties.cfg';
 
     var
         scriptCache, decompilerCache: TJsonObject;

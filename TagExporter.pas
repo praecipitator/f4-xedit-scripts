@@ -29,7 +29,7 @@ unit VISExporter;
         if Signature(e) = 'TES4' then
             Exit;
             
-        outputTextFile := ProgramPath + 'Edit Scripts\tagging-overrides\_auto-export.txt';
+        outputTextFile := ScriptsPath + 'tagging-overrides\_auto-export.txt';
       
         curName := DisplayName(e);
         if curName <> '' then begin 

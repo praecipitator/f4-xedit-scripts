@@ -11,7 +11,7 @@ unit NifBatchDeFullPrec;
 
     const
         FLAG_FULL_PREC = 16384;
-        configFile = ProgramPath + 'Edit Scripts\NIF - Batch De-FullPrec-ifier.cfg';
+        configFile = ScriptsPath + 'NIF - Batch De-FullPrec-ifier.cfg';
 
     var
         numFiles: integer;

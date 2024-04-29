@@ -1029,7 +1029,7 @@ AddMessage('== curSndFilename 2: '+curSndFilename);
 
         archive2path := DataPath + '..\Tools\Archive2\Archive2.exe';
 
-        blacklistPath := ProgramPath + 'Edit Scripts\Collect Assets Blacklist.txt';
+        blacklistPath := ScriptsPath + 'Collect Assets Blacklist.txt';
         if(fileExists(blacklistPath)) then begin
             resourceBlackList := TStringList.create;
             resourceBlackList.loadFromFile(blacklistPath);

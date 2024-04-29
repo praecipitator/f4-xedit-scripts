@@ -5,7 +5,7 @@ unit ExportInteriorCellBounds;
     uses praUtil;
 
     const
-        configFile = ProgramPath + 'Edit Scripts\Export Interior Cell Bounds.cfg';
+        configFile = ScriptsPath + 'Export Interior Cell Bounds.cfg';
 
     var
         cellNavmeshData: TJsonObject;

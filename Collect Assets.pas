@@ -5,7 +5,7 @@ unit CollectAssets;
     uses PraUtil, PexToJson;
 
     const
-        configFile = ProgramPath + 'Edit Scripts\Collect Assets.cfg';
+        configFile = ScriptsPath + 'Collect Assets.cfg';
 
     var
         // these are ALL resources, to prevent double processing
@@ -1044,7 +1044,7 @@ unit CollectAssets;
         windowWidthBase := 360;
         topOffset := 0;
 
-        frm := CreateDialog('Asset Collector', windowWidthBase, windowHeightBase+60);
+        frm := CreateDialog('Asset Collector', windowWidthBase+10, windowHeightBase+70);
 
         btnOkay := CreateButton(frm, 10, windowHeightBase, 'OK');
         btnOkay.ModalResult := mrYes;
@@ -1605,7 +1605,7 @@ unit CollectAssets;
 
         archive2path := DataPath + '..\Tools\Archive2\Archive2.exe';
 
-        blacklistPath := ProgramPath + 'Edit Scripts\Collect Assets Blacklist.txt';
+        blacklistPath := ScriptsPath + 'Collect Assets Blacklist.txt';
         if(fileExists(blacklistPath)) then begin
             resourceBlackList := TStringList.create;
             resourceBlackList.loadFromFile(blacklistPath);

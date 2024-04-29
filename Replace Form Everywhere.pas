@@ -7,7 +7,7 @@ unit ReplaceFormEverywhere;
 
     uses praUtil;
     const
-        replaceMapFile = ProgramPath + 'Edit Scripts\replace-map.txt';
+        replaceMapFile = ScriptsPath + 'replace-map.txt';
         createIfMissing = false;
     var
         StrReplace: string;

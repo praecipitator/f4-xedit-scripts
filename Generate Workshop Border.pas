@@ -108,14 +108,14 @@ unit WorkshopBorder;
     uses CobbLibrary;
 
     const
-        cellCacheFileName = ProgramPath + 'Edit Scripts\Generate Workshop Border - Cell Cache.json';
-        configFileName = ProgramPath + 'Edit Scripts\Generate Workshop Border - Config.json';
+        cellCacheFileName = ScriptsPath + 'Generate Workshop Border - Cell Cache.json';
+        configFileName = ScriptsPath + 'Generate Workshop Border - Config.json';
 
         primitiveLinkEdid = 'WorkshopLinkedPrimitive';
         SCALE_FACTOR_TERRAIN = 8;
 
         // svg output stuff
-        svgPath = ProgramPath + 'Edit Scripts\';
+        svgPath = ScriptsPath;
         targetWidth = 512;
         extraBorder = 8;
         rectSize = 8;

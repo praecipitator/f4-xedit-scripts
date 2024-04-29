@@ -5,7 +5,7 @@
 unit userscript;
     uses praUtil;
     const
-        configFile = ProgramPath + 'Edit Scripts\Restore Precombines.cfg';
+        configFile = ScriptsPath + 'Restore Precombines.cfg';
 
     var
         masterCheckList: TCheckListBox;

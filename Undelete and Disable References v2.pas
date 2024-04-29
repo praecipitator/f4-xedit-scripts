@@ -41,7 +41,7 @@
 unit UndeleteStuff;
     uses praUtil;
     const
-        configFile = ProgramPath + 'Edit Scripts\Undelete and Disable References v2.cfg';
+        configFile = ScriptsPath + 'Undelete and Disable References v2.cfg';
 
     var
         UndeletedCount: integer;

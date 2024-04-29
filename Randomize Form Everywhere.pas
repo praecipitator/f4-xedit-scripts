@@ -67,7 +67,7 @@ var
         replaceMapVals := TStringList.create;
 
         list := TStringList.Create;
-        list.loadFromFile( ProgramPath + 'Edit Scripts\variate-map.txt');
+        list.loadFromFile( ScriptsPath + 'variate-map.txt');
         for i:=0 to list.count-1 do begin
             curLine := trim(list[i]);
             if (length(curLine) > 0) then begin

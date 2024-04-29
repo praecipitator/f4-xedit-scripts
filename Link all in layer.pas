@@ -10,7 +10,7 @@ unit scraplink;
 
     uses praUtil;
     const
-        configFile = ProgramPath + 'Edit Scripts\Link all in layer.cfg';
+        configFile = ScriptsPath + 'Link all in layer.cfg';
 
     var
         scraplinkKw, scraplinkTarget: IInterface;

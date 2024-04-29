@@ -10,9 +10,9 @@ unit MakeSortingPatches;
     uses praTagifier;
 
     const
-        taggingConfigDataFileName = ProgramPath + 'Edit Scripts\SortingPatchData.json';
-        typeConfigFileName = ProgramPath + 'Edit Scripts\sorting-patches-type-map.txt';
-        configFileName = ProgramPath + 'Edit Scripts\multipatcher.json';
+        taggingConfigDataFileName = ScriptsPath + 'SortingPatchData.json';
+        typeConfigFileName = ScriptsPath + 'sorting-patches-type-map.txt';
+        configFileName = ScriptsPath + 'multipatcher.json';
         tagExtractionRegexNoBrackets = '^[\[\]\(\)\{\}|]([^\[\]\(\)\{\}|]+)[\[\]\(\)\{\}|].*';
         tagStripRegex = '^[\[\]\(\)\{\}|].+[\[\]\(\)\{\}|] (.+)$';
 

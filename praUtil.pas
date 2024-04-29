@@ -10,20 +10,26 @@ unit PraUtil;
 
     const STRING_LINE_BREAK = #13#10;
 
+    // this is how it is in xEdit 404...
     const
-        JSON_TYPE_NONE      = 0; // none
-        JSON_TYPE_STRING    = 1; // string
-        JSON_TYPE_INT       = 2; // int
-        JSON_TYPE_LONG      = 3; // long
-        JSON_TYPE_ULONG     = 4; // ulong
-        JSON_TYPE_FLOAT     = 5; // float
-        JSON_TYPE_DATETIME  = 6; // datetime
-        JSON_TYPE_BOOL      = 7; // bool
-        JSON_TYPE_ARRAY     = 8; // array
-        JSON_TYPE_OBJECT    = 9; // object
+        JSON_TYPE_NONE      = jdtNone; // none
+        JSON_TYPE_STRING    = jdtString; // string
+        JSON_TYPE_INT       = jdtInt; // int
+        JSON_TYPE_LONG      = jdtLong; // long
+        JSON_TYPE_ULONG     = jdtULong; // ulong
+        JSON_TYPE_FLOAT     = jdtFloat; // float
+        JSON_TYPE_DATETIME  = jdtDateTime; // datetime
+        // JSON_TYPE_UNKNOWN = 7
+        JSON_TYPE_BOOL      = jdtBool; // bool
+        JSON_TYPE_ARRAY     = jdtArray; // array
+        JSON_TYPE_OBJECT    = jdtObject; // object
+
+        // FOOBAR = chr(46);// works
+
 
     const
         XEDIT_VERSION_404 = $04000400;
+
 
     // xEdit stuff
     {

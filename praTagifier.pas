@@ -970,7 +970,7 @@ unit praTagifier;
     begin
         extraValidTagsList := nil;
         extraValidTags := '';
-        dir := ProgramPath + 'Edit Scripts\tagging-overrides\';
+        dir := ScriptsPath + 'tagging-overrides\';
         pattern := '*.txt';
         Attr := faAnyFile;
 
@@ -996,7 +996,7 @@ unit praTagifier;
         end;
         FindClose(Res);
         AddMessage('All overrides loaded');
-        //DictionaryFile := ProgramPath + 'Edit Scripts\vis-overrides\';
+        //DictionaryFile := ScriptsPath + 'vis-overrides\';
 
         scriptBlackList := TStringList.create;
         scriptBlackList.Sorted := true;
