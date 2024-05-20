@@ -6,11 +6,10 @@
 unit PraUtil;
     const
         // for version checking
-        PRA_UTIL_VERSION = 13.2;
+        PRA_UTIL_VERSION = 13.3;
 
     const STRING_LINE_BREAK = #13#10;
 
-    // this is how it is in xEdit 404...
     const
         JSON_TYPE_NONE      = jdtNone; // none
         JSON_TYPE_STRING    = jdtString; // string
@@ -19,12 +18,12 @@ unit PraUtil;
         JSON_TYPE_ULONG     = jdtULong; // ulong
         JSON_TYPE_FLOAT     = jdtFloat; // float
         JSON_TYPE_DATETIME  = jdtDateTime; // datetime
-        // JSON_TYPE_UNKNOWN = 7
         JSON_TYPE_BOOL      = jdtBool; // bool
         JSON_TYPE_ARRAY     = jdtArray; // array
         JSON_TYPE_OBJECT    = jdtObject; // object
 
-        // FOOBAR = chr(46);// works
+    const
+        MAX_EDID_LENGTH = 87; // 99-12, because 12 is the length of DUPLICATE000. And no, I don't care that the NG supposedly fixed this.
 
 
     const
@@ -1065,6 +1064,50 @@ unit PraUtil;
         Result := wbCRC32Data(br.ReadBytes(ms.Size));
         br.Free;
         ms.Free;
+    end;
+
+    {
+        Removes all characters which are not valid for an EditorID from the string.
+    }
+    function SanitizeEditorID(input: string): string;
+    var
+        i: integer;
+        tmp, c: string;
+    begin
+        tmp := input;
+        Result := '';
+
+        for i:=1 to length(tmp) do begin
+            c := tmp[i];
+
+            if (
+                (c >= 'a') and (c <= 'z') or
+                (c >= 'A') and (c <= 'Z') or
+                (c >= '0') and (c <= '9') or
+                (c = '-') or (c = '_')
+            ) then begin
+                Result := Result + c;
+            end;
+        end;
+
+    end;
+
+    {
+        Generates a string which is a valid EditorID: sanitizes the string, and shortens it using StringCRC32 if necessary.
+        This should be deterministic in regard of input->output, but *MIGHT* not provide different outputs for different inputs...
+    }
+    function CreateValidEditorID(input: string): string;
+    var
+        inputSanitized, part: string;
+    begin
+        inputSanitized := SanitizeEditorID(input);
+        Result := inputSanitized;
+
+        if(length(inputSanitized) > MAX_EDID_LENGTH) then begin
+            part := copy(inputSanitized, 1, MAX_EDID_LENGTH-9);
+            Result := part + '_' + IntToHex(StringCRC32(inputSanitized), 8);
+            exit;
+        end;
     end;
 
     procedure WriteElementRecursive(e: IInterface; bw: TBinaryWriter; index: integer);
@@ -3425,8 +3468,8 @@ unit PraUtil;
         Result := nil;
         frm := CreateDialog('Select File', 400, 150);
 
-        CreateLabel(frm, 50, 10, caption);
-        targetFileBox := CreateFileSelectDropdownExtended(frm, 50, 30, 280, preselectedFile, prependNewFileEntry, skipNotEditable);
+        CreateLabel(frm, 20, 10, caption);
+        targetFileBox := CreateFileSelectDropdownExtended(frm, 20, 30, 280, preselectedFile, prependNewFileEntry, skipNotEditable);
 
         btnOk := CreateButton(frm, 50, 60, '    OK    ');
         btnCancel := CreateButton(frm, 230, 60, '  Cancel  ');
@@ -3478,8 +3521,10 @@ unit PraUtil;
             curFile := FileByIndex(i);
 
             curFileName := GetFileName(curFile);
-            if(not isEditable(curFile)) then begin
-                continue;
+            if(skipNotEditable) then begin
+                if(not isEditable(curFile)) then begin
+                    continue;
+                end;
             end;
 
             fileIndex := Result.Items.Add(curFileName);
