@@ -5,12 +5,20 @@
 }
 unit PraUtil;
     const
-        // for version checking
-        PRA_UTIL_VERSION = 13.3;
+        // the version constant
+        PRA_UTIL_VERSION = 13.4;
 
-    const STRING_LINE_BREAK = #13#10;
 
-    const
+        // file flags
+        FILE_FLAG_ESM       = 1;
+        FILE_FLAG_LOCALIZED = 128;
+        FILE_FLAG_ESL       = 512;
+        FILE_FLAG_IGNORED   = 4096;
+
+        // xedit version constants
+        XEDIT_VERSION_404 = $04000400;
+
+        // JSON constants
         JSON_TYPE_NONE      = jdtNone; // none
         JSON_TYPE_STRING    = jdtString; // string
         JSON_TYPE_INT       = jdtInt; // int
@@ -22,12 +30,10 @@ unit PraUtil;
         JSON_TYPE_ARRAY     = jdtArray; // array
         JSON_TYPE_OBJECT    = jdtObject; // object
 
-    const
+        // misc constants
         MAX_EDID_LENGTH = 87; // 99-12, because 12 is the length of DUPLICATE000. And no, I don't care that the NG supposedly fixed this.
+        STRING_LINE_BREAK = #13#10;
 
-
-    const
-        XEDIT_VERSION_404 = $04000400;
 
 
     // xEdit stuff
@@ -243,22 +249,9 @@ unit PraUtil;
         Returns whenever a file has the ESL header
     }
     function isFileLight(f: IInterface): boolean;
-    var
-        header, esl: IInterface;
-        val: string;
     begin
-        Result := false;
-        header := ElementBySignature(f, 'TES4');
-        esl := ElementByPath(header, 'Record Header\Record Flags\ESL');
-        if(not assigned(esl)) then begin
-            exit;
-        end;
-
-        val := GetEditValue(esl);
-
-        if(val = '1') then begin
-            Result := true;
-        end;
+        // Turns out, xEdit had this thing all along. Good thing we have such a good documentation for it /s
+        Result := GetIsESL(f);
     end;
 
     {
