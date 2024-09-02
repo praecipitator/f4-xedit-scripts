@@ -80,7 +80,7 @@ unit MakeSortingPatches;
 
         dryRunCb := CreateCheckbox(frm, 230, 90, 'Dry-Run Mode');
         dryRunCb.checked := patcherConfig.B['dryRunMode'];
-        
+
         dumpTypesCb := CreateCheckbox(frm, 230, 110, 'Dump Types');
         dumpTypesCb.checked := patcherConfig.B['dumpTypes'];
 
@@ -610,13 +610,9 @@ unit MakeSortingPatches;
         Result := false;
     end;
 
-    function checkItemTagForCfg(text: String; extraValidTags: TJsonArray): boolean;
-    var
-        c, tag, tagBare, tagNoBrackets: string;
-        i, len: integer;
+    function getTagFromName(text: string): string;
     begin
-        // AddMessage('checkItemTagForCfg for '+text);
-        Result := false;
+        Result := '';
         len := length(text);
         if(len = 0) then begin
             exit;
@@ -634,11 +630,31 @@ unit MakeSortingPatches;
             exit;
         end;
 
-        tagBare := extractBareTag(text);
+        Result := extractBareTag(text);
+    end;
+    
+    function isTagValid(tag: String; extraValidTags: TJsonArray): boolean;
+    begin
+        Result := (jsonArrayContains(tag, extraValidTags));
+    end;
+
+    function checkItemTagForCfg(text: String; extraValidTags: TJsonArray): boolean;
+    var
+        tagBare: string;
+    begin
+        // AddMessage('checkItemTagForCfg for '+text);
+        Result := false;
+
+        tagBare := getTagFromName(text);
+        if(tagBare = '') then begin
+            exit;
+        end;
         //AddMessage('checkItemTagForCfg got bare tag '+tagBare);
 
-        Result := (jsonArrayContains(tagBare, extraValidTags));
+        Result := isTagValid(tagBare, extraValidTags);
     end;
+
+
 
     function stripTagExtra(text: String): string;
     var
@@ -688,7 +704,7 @@ unit MakeSortingPatches;
     var
         curData, curTagData: TJsonObject;
         extraValidTags: TJsonArray;
-        prevName, curName, sig, cmpString, tag, newName, newNameBase: string;
+        prevName, curName, sig, cmpString, tag, newName, newNameBase, prevTag: string;
         existingOverride, newOverride, checkElem: IInterface;
         newInrd, newInnr: IInterface;
         dryRunMode: boolean;
@@ -697,6 +713,7 @@ unit MakeSortingPatches;
         AddMessage('Processing '+DisplayName(e)+' for '+confName+' into '+GetFileName(targetFile)+'; type='+typeStr);
 
         existingOverride := getExistingElementOverride(e, targetFile);
+        // OR createElementOverride
         checkElem := e;
         if(assigned(existingOverride)) then begin
             // checkElem := existingOverride;
@@ -731,12 +748,18 @@ unit MakeSortingPatches;
         end else begin
             if(patcherConfig.B['keepValidTags']) then begin
                 prevName := DisplayName(newOverride);
-
-                if(checkItemTagForCfg(prevName, curData.A['extraValidTags'])) then begin
-                    exit;
+                prevTag := getTagFromName(prevName);
+                
+                if(isTagValid(prevTag, curData.A['extraValidTags'])) then begin
+                    tag := prevTag; // old tag gets used
                 end;
             end;
 
+            // now kill it and make a new one
+            if(not dryRunMode) then begin
+                Remove(newOverride);
+                newOverride := createElementOverride(e, targetFile);
+            end;
         end;
 
         sig := Signature(e);
@@ -903,7 +926,7 @@ unit MakeSortingPatches;
             curFile := ObjectToElement(fileMap.Objects[i]);
             CleanMasters(curFile);
         end;
-        
+
         if(patcherConfig.B['dumpTypes']) then begin
             AddMessage('=== DUMPING TYPES ===');
             for i:=0 to foundItemTypes.count-1 do begin
@@ -912,7 +935,7 @@ unit MakeSortingPatches;
                 AddMessage(curEdid+'='+curType);
             end;
         end
-        
+
         foundItemTypes.free();
 
         Result := 0;

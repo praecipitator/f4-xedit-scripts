@@ -26,7 +26,8 @@ unit CollectAssets;
         // Config Stuff
         verboseMode: boolean;
         addSource: boolean;
-        deleteDirectoryAfterwards: boolean;
+
+        createLooseFolder: boolean;
         addFacemesh: boolean;
         addScolMesh: boolean;
         useXwm: boolean;
@@ -72,7 +73,8 @@ unit CollectAssets;
         showListOfAssets := true;
         showMissingAssets := true;
 
-        deleteDirectoryAfterwards := true;
+
+        createLooseFolder := true;
         extractExistingBa2 := true;
         packNewBa2 := true;
         shouldCompressMainBa2 := true;
@@ -121,8 +123,8 @@ unit CollectAssets;
                     showListOfAssets := StrToBool(curVal);
                 end else if(curKey = 'showMissingAssets') then begin
                     showMissingAssets := StrToBool(curVal);
-                end else if(curKey = 'deleteDirectoryAfterwards') then begin
-                    deleteDirectoryAfterwards := StrToBool(curVal);
+                end else if(curKey = 'createLooseFolder') then begin
+                    createLooseFolder := StrToBool(curVal);
                 end else if(curKey = 'extractExistingBa2') then begin
                     extractExistingBa2 := StrToBool(curVal);
                 end else if(curKey = 'packNewBa2') then begin
@@ -155,7 +157,7 @@ unit CollectAssets;
         lines.add('verboseMode='+BoolToStr(verboseMode));
         lines.add('showListOfAssets='+BoolToStr(showListOfAssets));
         lines.add('showMissingAssets='+BoolToStr(showMissingAssets));
-        lines.add('deleteDirectoryAfterwards='+BoolToStr(deleteDirectoryAfterwards));
+        lines.add('createLooseFolder='+BoolToStr(createLooseFolder));
         lines.add('extractExistingBa2='+BoolToStr(extractExistingBa2));
         lines.add('packNewBa2='+BoolToStr(packNewBa2));
         lines.add('shouldCompressMainBa2='+BoolToStr(shouldCompressMainBa2));
@@ -554,6 +556,23 @@ unit CollectAssets;
         end;
     end;
 
+    {
+        Process a standard Model entry, which contains MODL and MODS
+    }
+    procedure processStandardModelEntry(e: IInterface);
+    var
+        modl, mods: string;
+    begin
+        modl := getElementEditValues(e, 'MODL');
+        if(modl <> '') then begin
+            processModel(modl);
+        end;
+        mods := getElementEditValues(e, 'MODS');
+        if(mods <> '') then begin
+            processMaterial(mods);
+        end;
+    end;
+
 
 
     procedure processNif(nifPath: string);
@@ -661,10 +680,10 @@ unit CollectAssets;
         modelNameFull := DataPath+modelName;
 
         checkMissingResource(modelName);
+        nifNames.add(modelName);
         if(not fileExists(modelNameFull)) then begin
             exit;
         end;
-        nifNames.add(modelName);
         processResource(modelName);
 
         processNif(modelName);
@@ -908,12 +927,40 @@ unit CollectAssets;
 
     end;
 
+    procedure processBodyPartsByPath(e: IInterface; path: string);
+    var
+        i: integer;
+        parts, part: IInterface;
+        test: string;
+    begin
+        parts := ElementByPath(e, path);
+
+        for i:=0 to ElementCount(parts)-1 do begin
+            part := ElementByIndex(parts, i);
+
+            processStandardModelEntry(ElementByPath(part, 'Model'));
+        end;
+
+    end;
+
     procedure processRace(e: IInterface);
     var
-        subGraph, animPaths, curData: IInterface;
+        subGraph, animPaths, curData, bodyData: IInterface;
         i, j: integer;
         curHkx: string;
     begin
+        // add
+        // // MNAM - Male Marker,
+        // ANAM - Male Skeletal Model
+
+        processModelByPath(e, 'ANAM - Male Skeletal Model');
+        processModelByPath(e, 'ANAM - Female Skeletal Model');
+
+
+        processBodyPartsByPath(e, 'Body Data\Male Body Data\parts');
+        processBodyPartsByPath(e, 'Body Data\Female Body Data\parts');
+
+
         subGraph := ElementByPath(e, 'Subgraph Data');
 
         if(not assigned(subGraph)) then exit;
@@ -1008,7 +1055,7 @@ unit CollectAssets;
         outputGroup: TGroupBox;
         unpackExisting: TCheckBox;
         repackOutput: TCheckBox;
-        deleteDirectory: TCheckBox;
+        createLoose: TCheckBox;
         parseScriptsCb: TCheckBox;
         blacklistScriptsCb: TCheckBox;
         compressMainBa2: TCheckBox;
@@ -1142,9 +1189,9 @@ unit CollectAssets;
             compressMainBa2.state := cbChecked;
         end;
 
-        deleteDirectory   := CreateCheckbox(outputGroup, 10, 75,'Delete Folder after repacking');
-        if(deleteDirectoryAfterwards) then begin
-            deleteDirectory.state := cbChecked;
+        createLoose := CreateCheckbox(outputGroup, 10, 75, 'Create Loose Folder');
+        if(createLooseFolder) then begin
+            createLoose.state := cbChecked;
         end;
 
         //cbIgnoreNamespaceless
@@ -1163,7 +1210,7 @@ unit CollectAssets;
         end else begin
             useResourceBlacklist := false;
         end;
-        deleteDirectoryAfterwards := (deleteDirectory.state = cbChecked);
+        createLooseFolder := (createLoose.state = cbChecked);
         parseScripts := (parseScriptsCb.state = cbChecked);
 
         addSource   := (cbIncludeSource.State = cbChecked);
@@ -1240,6 +1287,7 @@ unit CollectAssets;
         if(not DirectoryExists(path)) then begin
             if(not CreateDir (path)) then begin
                 AddMessage('Error: failed to create directory '+path);
+                // try shell
                 Result := false;
                 exit;
             end;
@@ -1251,6 +1299,15 @@ unit CollectAssets;
         i, start: Integer;
         curChar, curPart, curSubpath: string;
     begin
+        // looks like, once again, the native functions are unreliable...
+        Result := true;
+        if(not DirectoryExists(path)) then begin
+            ShellExecuteWait(TForm(frmMain).Handle, 'open', 'cmd', '/C mkdir "'+path+'"', '', SW_HIDE);
+            Result := DirectoryExists(path);
+        end;
+        
+        exit;
+    
         Result := true;
         start := 1;
         curSubpath := '';
@@ -1445,30 +1502,48 @@ unit CollectAssets;
                             break;
                         end;
 
-                        {
-                        curExt := ExtractFileExt(searchResult.Name);
 
-                        if (SameText(curExt, '.nif')) then begin
-                            if (strEndsWith(LowerCase(basePath), 'precombined')) then begin
-                                AddMessage('Found a precombined mesh, setting compression to NONE');
-                                Result := true;
-                                break;
-                            end;
-                        end;
-                        }
                     end;
                 end;
             until (FindNext(searchResult) <> 0);
 
             // Must free up resources used by these successful finds
             FindClose(searchResult);
+            searchResult := nil;
+        end;
+    end;
+
+    function moveFolderContents(fromFolder: string; toFolder: string): boolean;
+    var
+        searchResult : TSearchRec;
+        oldName, newName: string;
+    begin
+        Result := true;
+        if FindFirst(fromFolder+'*', faAnyFile, searchResult) = 0 then begin
+            repeat
+                // ignore . and ..
+                if(searchResult.Name <> '.') and (searchResult.Name <> '..') then begin
+                    oldName := stripSlash(fromFolder)+'\'+searchResult.Name;
+                    // oldName :=
+                    newName := toFolder+searchResult.Name;
+                    AddMessage(oldName+' -> '+newName);
+                    If not RenameFile (oldName, newName) then begin
+                        Result := false;
+                    end;
+
+                end;
+            until FindNext(searchResult) <> 0;
+
+            // Must free up resources used by these successful finds
+            FindClose(searchResult);
+            searchResult := nil; // no clue why, but this prevents xEdit from locking the folder down
         end;
     end;
 
     function finishOutput(): boolean;
     var
         basePath, mainPath, texPath: string;
-        mainba2, texba2, basename: string;
+        mainba2, texba2, basename, loosePath: string;
     begin
         Result := true;
 
@@ -1498,12 +1573,27 @@ unit CollectAssets;
             end;
         end;
 
-        if(deleteDirectoryAfterwards) then begin
-            AddMessage('Deleting '+basePath);
-            if(not DeleteDirectory(basePath, false)) then begin
-                AddMessage('Deleting failed! Maybe clean it up manually');
+        if(createLooseFolder) then begin
+            // create folder
+            loosePath := outputDir+ExtractFileBasename(currentFilename)+' - Loose\';
+            AddMessage('Creating Loose Files Folder '+loosePath);
+            DeleteDirectory(loosePath, true); // just in case
+            ensurePath(loosePath);
+            if(hasMainOutput) then begin
+                // move contents of mainPath
+                moveFolderContents(mainPath, loosePath);
             end;
+            if(hasTextureOutput) then begin
+                moveFolderContents(texPath, loosePath);
+            end;
+
         end;
+
+        AddMessage('Deleting '+basePath);
+        if(not DeleteDirectory(basePath, false)) then begin
+            AddMessage('Deleting failed! Try cleaning it up manually');
+        end;
+
 
         Result := true;
 
@@ -2066,7 +2156,6 @@ unit CollectAssets;
     end;
 
     // Called after processing
-    // You can remove it if script doesn't require finalization code
     function Finalize: integer;
     var
         i, added: integer;

@@ -2,7 +2,7 @@
     Batch-remove Full Prec from nif files. Run on anything, you will be asked to select a nif or a directory.
     If "Create Backups" is checked, the backups will be created in the same directory as the original, with ".bak" appended.
     If a backup cannot be created, the file will not be overwritten.
-    
+
     So far, only BSTriShape, BSMeshLODTriShape, and BSTriShapeSubIndex are processed. If there are more, add them to triShapeTypes in Initialize()
 }
 unit NifBatchDeFullPrec;
@@ -19,6 +19,7 @@ unit NifBatchDeFullPrec;
         processingMode: integer; // 0 => single file, 1 => directory, 2 => directory recursive
         makeBackup: boolean;
         triShapeTypes: TStringList;
+        DEBUGFOO: boolean;
     //============================================================================
     procedure loadConfig();
     var
@@ -64,7 +65,7 @@ unit NifBatchDeFullPrec;
                     end else if(processingMode > 2) then begin
                         processingMode := 2;
                     end;
-                    
+
                 end;
             end;
         end;
@@ -158,9 +159,187 @@ unit NifBatchDeFullPrec;
 
     //============================================================================
 
+    function doShittyRounding(x: float; numDigits: cardinal): float;
+    var
+        helper: float;
+        delta, tester, haveDigits, digitsLog: integer;
+    begin
+        if(x = 0) then begin
+            Result := 0;
+            exit;
+        end;
+
+        if(x < 0) then begin
+            Result := doShittyRounding(x * -1, numDigits) * -1;
+            exit;
+        end;
+
+        digitsLog := Trunc(Log10(x));
+
+        if(digitsLog >= 0) then begin
+            haveDigits := digitsLog + 1;
+        end else begin
+            haveDigits := (digitsLog) - 1;
+        end;
+        delta := numDigits-haveDigits;
+        helper :=  Power(10.0, delta);
+        tester := Round(x * helper);
+        Result := tester / helper;
+    end;
+
+    function formatFloatForNif(f: float): string;
+    begin
+        Result := FormatFloat('0.000000', f);
+    end;
+    function areFloatsCloseEnough(x, y: float): boolean;
+    var
+        signX, signY: boolean;
+        percent: float;
+    begin
+        if(x = y) then begin
+            Result := true;
+            exit;
+        end;
+
+        signX := (x > 0);
+        signY := (y > 0);
+
+        if(signX <> signY) then begin
+            Result := false;
+            exit;
+        end;
+        
+        if(not signX) then begin
+            x := x * -1;
+            y := y * -1;
+        end;
+
+        if(x > y) then begin
+            percent := y/x;
+        end else begin
+            percent := x/y;
+        end;
+
+        // AddMessage('percent = '+FloatToStr(percent));
+
+        Result := (1 - percent) <= 0.1; // no clue what a good tolerance to check is
+    end;
+
+    procedure fixCoords(backupCoords: string; vertex: TwbNifBlock);
+    var
+        i, n: integer;
+        explodeHelperOld, explodeHelperNew: TStringList;
+        curCoordOld, curCoordNew, temp: float;
+    begin
+        explodeHelperOld := TStringList.create();
+        explodeHelperOld.Delimiter := ' ';
+        explodeHelperOld.StrictDelimiter := TRUE;
+        explodeHelperOld.DelimitedText := backupCoords;
+
+        explodeHelperNew := TStringList.create();
+        explodeHelperNew.Delimiter := ' ';
+        explodeHelperNew.StrictDelimiter := TRUE;
+        //explodeHelperNew.DelimitedText := vertex;
+
+        for i:=0 to 2 do begin
+            explodeHelperNew.DelimitedText := vertex.EditValues['Vertex'];
+            // go over the coords
+            curCoordOld := StrToFloat(explodeHelperOld[i]);
+            curCoordNew := StrToFloat(explodeHelperNew[i]);
+
+            temp := curCoordOld;
+            n := 0;
+            // now what?
+            if(not areFloatsCloseEnough(curCoordOld, curCoordNew)) then begin
+                AddMessage('Found aberrant numbers at '+IntToStr(i)+'! '+FloatToStr(curCoordOld)+' vs '+FloatToStr(curCoordNew));
+                while(not areFloatsCloseEnough(curCoordOld, curCoordNew)) do begin
+                    temp := temp + 0.0001; // maybe this should be a percentual thing somehow
+
+                    explodeHelperNew[i] := FloatToStr(temp);
+
+                    vertex.EditValues['Vertex'] := explodeHelperNew.DelimitedText;
+                    // and read it back
+                    explodeHelperNew.DelimitedText := vertex.EditValues['Vertex'];
+                    curCoordNew := StrToFloat(explodeHelperNew[i]);
+
+                    n := n + 1;
+                end;
+                AddMessage('Took '+IntToStr(n)+' iterations to fix');
+{
+}
+            end;
+
+        end;
+
+        explodeHelperNew.free();
+        explodeHelperOld.free();
+    end;
+
+    procedure postProcessVertexData(vertexDataNif: TwbNifBlock; vertexDataStr: string);
+    var
+        vertexDataJson, curEntry, vertexArray: TJsonObject;
+        vertexArrayJson: TJsonArray;
+        i, j: integer;
+        curVertex, curNumber: string;
+        explodeHelper: TStringList;
+        x, y, z: float;
+        vertexArrayNif: TwbNifBlock;
+        testval: cardinal;
+    begin
+        vertexDataJson := TJsonObject.Parse(vertexDataStr);
+
+        vertexArrayJson := vertexDataJson.A['Vertex Data'];
+        vertexArrayNif  := vertexDataNif;
+
+        if(vertexArrayNif = nil) then begin
+            AddMessage('vertexArrayNif FAIL');
+        end;
+
+
+        if(vertexArrayNif.count <> vertexArrayJson.count) then begin
+            AddMessage('ERRROR: ARRAY LENGTH MISMATCH');
+            exit;
+        end;
+
+        for i:=0 to vertexArrayJson.count-1 do begin
+            curEntry := vertexArrayJson.O[i];
+            curVertex := curEntry.S['Vertex'];
+            fixCoords(curVertex, vertexArrayNif[i]);
+            {
+            // 2168
+            explodeHelper := TStringList.create();
+            explodeHelper.Delimiter := ' ';
+            explodeHelper.StrictDelimiter := TRUE;
+            explodeHelper.DelimitedText := curVertex;
+            // now explodeHelper should have 3 entries for X, Y, Z
+            x := StrToFloat(explodeHelper[0]);
+            y := StrToFloat(explodeHelper[1]);
+            z := StrToFloat(explodeHelper[2]);
+
+
+
+            vertexArrayNif[i].EditValues['Vertex'] := formatFloatForNif(doShittyRounding(x, 6))+' '+formatFloatForNif(doShittyRounding(y, 6))+' '+formatFloatForNif(doShittyRounding(z, 6));
+            if(i = 2168) then begin
+                y := y + 0.0001; // this seems to be the smallest value I can add without it breaking
+                vertexArrayNif[i].EditValues['Vertex'] := formatFloatForNif(doShittyRounding(x, 6))+' '+formatFloatForNif(doShittyRounding(y, 6))+' '+formatFloatForNif(doShittyRounding(z, 6));
+                AddMessage('Y explodehelper: '+explodeHelper[1]+', as float: '+FloatToStr(y)+', shitty: '+formatFloatForNif(doShittyRounding(y, 6)));
+                AddMessage('Reverse: '+vertexArrayNif[i].EditValues['Vertex']);
+            end;
+
+            // writeHalfPrecVertexCoordsManually(x, y, z, vertexArrayNif[i]);
+
+            explodeHelper.free();
+            }
+        end;
+
+        // vertexArrayJson.SaveToFile('F:\SteamSSD\steamapps\common\Fallout 4\xEdit\foobar.json');
+
+        vertexArrayJson.free();
+    end;
+
     procedure ProcessNif(nifPath: string);
     var
-        i, numTriShapes, test: integer;
+        d, i, numTriShapes, test: integer;
         rootBlock, vertexDesc, vertexData: TwbNifBlock;
         Nif: TwbNifFile;
         vertexBackup: string;
@@ -172,9 +351,8 @@ unit NifBatchDeFullPrec;
         Nif := TwbNifFile.Create;
         try
             //Nif.LoadFromFile(nifPath);
-            // d := dfFloatDecimalDigits;
-            // dfFloatDecimalDigits := 16;
-            //dfFloatDecimalDigits := 6; // do I need this?
+            d := dfFloatDecimalDigits;
+            dfFloatDecimalDigits := 16;
 
             Nif.LoadFromFile(nifPath);
             // AddMessage('Processing file '+nifPath);
@@ -185,16 +363,6 @@ unit NifBatchDeFullPrec;
                 rootBlock := Nif.Blocks[i];
 
                 if(triShapeTypes.indexOf(rootBlock.BlockType) >= 0) then begin
-                    // AddMessage('checking '+IntToSTr(i)+' '+rootBlock.EditValues['Name']+' '+rootBlock.name+' '+rootBlock.BlockType );
-
-                    // AddMessage('Trying to get the stuff '+rootBlock.EditValues['Vertex Desc']); // nope
-                    // foo := rootBlock.Elements['Vertex Desc']; nope
-                    // AddMessage('Trying to get the stuff '+rootBlock.VertexDesc); // nope
-                    // AddMessage('Trying to get the stuff '+rootBlock.EditValues['VertexDesc']);  // nope
-                    // AddMessage('Trying to get the stuff '+rootBlock.Elements['VertexDesc']); // type mismatch!
-                    // AddMessage('Trying to get the stuff '+foo.EditValues['VF']); // string 'VF_VERTEX | VF_UV | VF_NORMAL | VF_TANGENT | VF_FULLPREC', this sux
-                    // AddMessage('Trying to get the stuff '+IntToStr(vertexDesc.NativeValues['VF'])); // YES!!! 16816 vs 432 0 16384
-
                     vertexDesc := rootBlock.Elements['VertexDesc'];
                     vertexFlags := vertexDesc.NativeValues['VF'];
                     if (vertexFlags and FLAG_FULL_PREC <> 0) then begin
@@ -207,7 +375,13 @@ unit NifBatchDeFullPrec;
                             vertexBackup := vertexData.toJson(vertexData);
                             vertexDesc.NativeValues['VF'] := vertexFlags;
                             // restore backup
+                            // vertexBackup := RoundVertexData(vertexBackup);
+
                             vertexData.FromJson(vertexBackup);
+                            postProcessVertexData(vertexData, vertexBackup);
+
+
+                            // exit;
                         end else begin
                             AddMessage('WARN: looks like '+nifPath+' has no vertex data for block '+IntToStr(i));
                             vertexDesc.NativeValues['VF'] := vertexFlags;
@@ -235,6 +409,8 @@ unit NifBatchDeFullPrec;
                     end;
                 end;
 
+                // canContinue := false; // DEBUG!!!
+
                 if(canContinue) then begin
                     Nif.SaveToFile(nifPath);
                     AddMessage(' -> File saved.');
@@ -246,7 +422,7 @@ unit NifBatchDeFullPrec;
         finally
             Nif.free();
         end;
-        //dfFloatDecimalDigits := d;
+        dfFloatDecimalDigits := d;
     end;
 
     //============================================================================
@@ -286,7 +462,7 @@ unit NifBatchDeFullPrec;
         i, xOffset, yOffset: integer;
     begin
         loadConfig();
-        
+
         numFiles := 0;
 
         triShapeTypes := TStringList.create();

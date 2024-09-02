@@ -6,7 +6,7 @@
 
     The rules are:
         - Worldspaces:
-            - must be an ITM
+            - never (apparently it isn't actually safe)
         - Cells:
             - Interiors:
                 - Must be an ITM
@@ -475,6 +475,7 @@ unit MakePartialForm;
             exit;
         end;
 
+        {
         // check stuff
         if(s = 'WRLD') then begin
             if(not checkWorldSpace(e)) then begin
@@ -487,6 +488,7 @@ unit MakePartialForm;
             truncateWorldspace(e);
             exit;
         end;
+        }
 
         if(s = 'CELL' ) then begin
             if(isInterior(e)) then begin

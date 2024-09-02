@@ -74,4 +74,8 @@ Scripts\source\user\workshopnpcscript.psc
 Scripts\source\user\workshopobjectscript.psc
 Scripts\SettlementMenuManager
 Scripts\source\user\SettlementMenuManager
+scripts\source\user\lighthouse.psc
+scripts\lighthouse.pex
+scripts\source\user\sup_f4se.pex
+scripts\sup_f4se.pex
 
