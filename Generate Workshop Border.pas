@@ -1,4 +1,6 @@
 {
+    Workshop Border Generation Script.
+
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     !!! =========================================== IMPORTANT ============================================ !!!
     !!! For this to work, you MUST disable the xEdit setting "Simple records LAND, NAVI, NAVM, CELL, WRLD" !!!
@@ -14,6 +16,10 @@
         - praUtil.pas
         - CobbLibrary.pas
         - XeditSimpleMath.pas
+
+    Short explanation:
+        The script combines all the workshop's build areas into a single shape, then walks along that shape's edge, taking fixed-length steps.
+        At each step, it tries to find the terrain's height, and places a new point. Out of these points, the border mesh is generated.
 
     Explanation of the options in the UI:
         - Output File:
@@ -86,7 +92,8 @@
             - For resizing, make sure the box doesn't have zero size in any dimension, such boxes will be skipped.
             - For rotating along the X or Y axes, do not rotate it by 90° or more. This might cause unexpected behavior.
             - If two or more boxes overlap, the script will just pick one or the other, without any guarantee which gets picked when.
-            - The border will not necessarily be aligned with the boxes. The script will
+            - The border will not necessarily be aligned with the boxes. The script will use the height from the helper box if a step falls within the box,
+                but it doesn't care about where the box ends.
 
     "Hidden" Settings:
         These settings are not exposed in the UI, but can be changed in the config JSON:
