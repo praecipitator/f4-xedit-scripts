@@ -164,6 +164,7 @@ unit WorkshopBorder;
         doFullPrec: boolean;
         heightHelperBoxEdid: string;
         autoPathBase: string;
+        brokenShitXedit: cardinal;
 
     procedure loadConfig();
     var
@@ -662,20 +663,27 @@ unit WorkshopBorder;
 
         //landValue := landOffset;
 
-        rows := ElementByPath(vhgt, 'Rows');
+        if (wbVersionNumber >= brokenShitXedit) then begin
+            rows := ElementByPath(vhgt, 'Height Data');
+        end else begin
+            rows := ElementByPath(vhgt, 'Rows');
+        end;
+
 
         for y := 0 to 32 do begin
             yString := IntToStr(y);
             curRow := ElementByIndex(rows, y);
-            curRow := ElementByPath(curRow, 'Columns');
-            //AddMessage('curRow');
-            //dumpElem(curRow);
+
+            if (wbVersionNumber < brokenShitXedit) then begin
+                curRow := ElementByPath(curRow, 'Columns');
+            end;
             for x := 0 to 32 do begin
                 xString := IntToStr(x);
                 curEntry := ElementByIndex(curRow, x);
+
                 entryString := GetEditValue(curEntry);
                 if(entryString = '') then begin
-                    AddMessage('Looks like you didn''t disable the "Simple Records" setting in xEdit. This script will crash now.');
+                    AddMessage('Either you didn''t disable the "Simple Records" setting in xEdit, or xEdit broke reading Landscape records again. This script will crash now.');
                 end;
                 curVal := StrToFloat(entryString);
                 if(curVal > 127) then begin
@@ -1425,6 +1433,8 @@ unit WorkshopBorder;
             Result := 1;
             exit;
         end;
+
+        brokenShitXedit := xEditVersionToCardinal(4, 1, 5, 'j');
 
         debugIndex := 0;
         Result := 0;
