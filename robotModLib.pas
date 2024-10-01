@@ -38,7 +38,7 @@ unit robotModLib;
         doneFirst: boolean;
     begin
         Result := nil;
-    
+
         edidBase := 'praSS2Bot_EnchBot';
         nameBase := '';
         if(strength <> 0) then begin
@@ -78,8 +78,8 @@ unit robotModLib;
         Result := wbCopyElementToFile(effectTemplate, targetFile, True, True);
         SetElementEditValues(Result, 'EDID', edidBase);
         SetElementEditValues(Result, 'FULL', trim(nameBase));
-        AddMessage('Creating');
-        FullPath(Result);
+        //      AddMessage('Creating');
+        //      FullPath(Result);
 
         // clearing effects doesn't work, there must be one
         doneFirst := true;
@@ -131,7 +131,10 @@ unit robotModLib;
         praSS2Bot_Bot_FortifyAgility := FindObjectByEdid('praSS2Bot_Bot_FortifyAgility');
         praSS2Bot_Bot_FortifyLuck := FindObjectByEdid('praSS2Bot_Bot_FortifyLuck');
 
-        effectTemplate := FindObjectByEdid('praSS2Bot_EnchBot_FortifyIntelligence10');
+        effectTemplate := FindObjectByEdid('praSS2Bot_EnchBot_E1');
+        if(not assigned(effectTemplate)) then begin
+            AddMessage('=== ERROR: FAILED TO FIND EFFECT TEMPLATE ===');
+        end;
 
         targetFile := toFile;
     end;
@@ -148,17 +151,68 @@ unit robotModLib;
     end;
 
     procedure setStats(orig: IInterface; strength, perception, endurance, charisma, intelligence, agility, luck: integer);
+    begin
+        setStatsDesc(orig, strenth, perception, endurance, charisma, intelligence, agility, luck, '');
+    end;
+
+    function resetOverride(e: IInterface): IInterface;
+    var
+        masterRec, masterFile: IInterface;
+    begin
+        masterRec := MasterOrSelf(e);
+        e := getExistingElementOverride(masterRec, targetFile);
+        Result := e;
+        if(isSameFile(GetFile(masterRec), getFile(e))) then begin
+            exit;
+        end;
+
+        // masterFile := GetFile(masterRec);
+        // AddMessage('should be removing');
+        Remove(e);
+
+        // addRequiredMastersSilent(masterRec, targetFile);
+        // Result := wbCopyElementToFile(masterRec, targetFile, False, True);
+    end;
+
+    procedure setStatsDesc(orig: IInterface; strength, perception, endurance, charisma, intelligence, agility, luck: integer; description: string);
     var
         ench, overr, props, newProp: IInterface;
         oldDesc, newDescPart, newDesc: string;
     begin
+        orig := MasterOrSelf(orig);
         if (strength = 0) and (perception = 0) and (endurance = 0) and (charisma = 0) and (intelligence = 0) and (agility = 0) and (luck = 0) then begin
+            // if this is an override, remove it
+            //AddMessage('all zero');
+            if(not isSameFile(getFile(orig), targetFile)) then begin
+                // remove orig, create new override
+                //AddMessage('should reset');
+                resetOverride(orig);
+            end;
+            // otherwise, dunno yet
             exit;
         end;
-    
-    
+
+
         ench := getEnchantment(strength, perception, endurance, charisma, intelligence, agility, luck);
-        overr := createElementOverride(orig, targetFile);
+        if(not assigned(ench)) then begin
+            AddMessage('ERROR: no enchantment for '+IntToStr(strength)+' '+IntToStr(perception)+' '+IntToStr(endurance)+' '+IntToStr(charisma)+' '+IntToStr(intelligence)+' '+IntToStr(agility)+' '+IntToStr(luck));
+            exit;
+        end;
+
+        if(isSameFile(getFile(orig), targetFile)) then begin
+            overr := orig;
+            // here, we also need to erase the properties
+            props := ElementByPath(overr, 'DATA\Properties');
+            while(ElementCount(props) > 0) do begin
+                RemoveElement(props, 0);
+            end;
+
+            //RemoveElement(overr, 'DATA\Properties');
+            //ensurePath(overr, 'DATA\Properties');
+        end else begin
+            orig := getWinningOverrideBefore(orig, targetFile);
+            overr := createElementOverride(orig, targetFile);
+        end;
 
         props := ElementByPath(overr, 'DATA\Properties');
         newProp := ElementAssign(props, HighInteger, nil, False);
@@ -170,7 +224,11 @@ unit robotModLib;
         SetElementEditValues(newProp, 'Value 2 - Int', '1');
         setPathLinksTo(newProp, 'Value 1 - FormID', ench);
 
-        oldDesc := GetElementEditValues(overr, 'DESC');
+        if (description = '') then begin
+            oldDesc := GetElementEditValues(overr, 'DESC');
+        end else begin
+            oldDesc := description;
+        end;
 
         newDescPart := '';
 

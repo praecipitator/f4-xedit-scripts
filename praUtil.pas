@@ -6,7 +6,7 @@
 unit PraUtil;
     const
         // the version constant
-        PRA_UTIL_VERSION = 13.4;
+        PRA_UTIL_VERSION = 14.0;
 
 
         // file flags
@@ -17,6 +17,8 @@ unit PraUtil;
 
         // xedit version constants
         XEDIT_VERSION_404 = $04000400;
+        XEDIT_VERSION_415h = $04010508;
+        XEDIT_VERSION_415j = $0401050A;
 
         // JSON constants
         JSON_TYPE_NONE      = jdtNone; // none
@@ -817,39 +819,19 @@ unit PraUtil;
     end;
 
     {
+        DEPRECATED: this is actually just the same as RecordByFormID.
+
         Returns an element by a formId, which is relative to the given file's master list.
         That is, if theFile has at least 2 masters and the given id is 0x01001234, it will
         try to find 0x00001234 in the second master.
-        If applicable, will return the corresponding override from theFile
+        If applicable, will return the corresponding override from theFile.
     }
     function elementByRelativeFormId(theFile: IwbFile; id: cardinal): IInterface;
     var
         numMasters, prefix, baseId: integer;
         targetMaster, formMaster: IInterface;
     begin
-        Result := nil;
-        numMasters := MasterCount(theFile);
-        prefix := (id and $FF000000) shr 24;
-        baseId := (id and $00FFFFFF);
-        if(prefix > numMasters) then begin
-            // bad
-            exit;
-        end;
-        if(prefix = numMasters) then begin
-            // from theFile itself
-            Result := getFormByFileAndFormID(theFile, baseId);
-            exit;
-        end;
-
-        // otherwise, from a master
-        targetMaster := MasterByIndex(theFile, prefix);
-
-        formMaster := getFormByFileAndFormID(targetMaster, baseId);
-
-        Result := getExistingElementOverride(formMaster, theFile);
-        if(not assigned(Result)) then begin
-            Result := formMaster;
-        end;
+        Result := RecordByFormID(theFile, id, true);
     end;
 
     {
@@ -990,50 +972,15 @@ unit PraUtil;
         numMasters: integer;
         localFormId, fixedId, fileIndex: cardinal;
     begin
-        Result := nil;
-        // It seems like RecordByFormID doesn't care about the real load order prefix.
-        // Instead, it expects the first byte to contain the index of the file.
-        // Since RecordByFormID also expects that very same format, I suspect that
-        // xEdit uses correct light FormIDs for display only, but still gives them a full slot internally.
-        fileIndex := GetLoadOrder(theFile);
+        // it looks like fileIndex is clamped to the count of masters, so numbers > than it will still produce the correct result
+        fileIndex := MasterCount(theFile);
 
-        if(fileIndex > 255) then begin
-            AddMessage('ERROR: Cannot resolve FormID '+IntToHex(id, 8)+' for file '+GetFileName(theFile)+', because you have more than 255 files loaded. xEdit doesn''t actually support this.');
-            exit;
-        end;
+        Result := nil;
 
         fileIndex := (fileIndex shl 24) and $FF000000;
 
         fixedId := fileIndex or getLocalFormId(theFile, id);
-
-        Result := RecordByFormID(theFile, fixedId, false);
-    end;
-
-    {
-        Returns a record by it's form ID and a file. This should also work
-    }
-    function getFormByFileAndPrefixedFormID(theFile: IInterface; id: cardinal): IInterface;
-    var
-        numMasters: integer;
-        localFormId, fixedId, fileIndex: cardinal;
-    begin
-        Result := nil;
-        // It seems like RecordByFormID doesn't care about the real load order prefix.
-        // Instead, it expects the first byte to contain the index of the file.
-        // Since RecordByFormID also expects that very same format, I suspect that
-        // xEdit uses correct light FormIDs for display only, but still gives them a full slot internally.
-        fileIndex := GetLoadOrder(theFile);
-
-        if(fileIndex > 255) then begin
-            AddMessage('ERROR: Cannot resolve FormID '+IntToHex(id, 8)+' for file '+GetFileName(theFile)+', because you have more than 255 files loaded. xEdit doesn''t actually support this.');
-            exit;
-        end;
-
-        fileIndex := (fileIndex shl 24) and $FF000000;
-
-        fixedId := fileIndex or getLocalFormId(theFile, id);
-
-        Result := RecordByFormID(theFile, fixedId, false);
+        Result := RecordByFormID(theFile, fixedId, true);
     end;
 
     {
@@ -1103,6 +1050,10 @@ unit PraUtil;
         end;
     end;
 
+    {
+        Recursively outputs the given element into the given binary writer, for hashing purposes.
+        The string isn't supposed to make much sense on it's own.
+    }
     procedure WriteElementRecursive(e: IInterface; bw: TBinaryWriter; index: integer);
     var
         i: Integer;
@@ -1127,7 +1078,11 @@ unit PraUtil;
 
     end;
 
-
+    {
+        Calculates a CRC32 of the given element, by converting it into some sort of a string and hashing that.
+        This isn't going to be compatible with any other implementation, but should return the same hash
+        for equivalent elements.
+    }
     function ElementCRC32(e: IInterface): string;
     var
         ms: TMemoryStream;
@@ -1148,9 +1103,9 @@ unit PraUtil;
     end;
 
     {
-        Copypasta of the above, just using the MD5 function
-
-        IntToHex(foo, 16)
+        Calculates a MD5 of the given element, by converting it into some sort of a string and hashing that.
+        This isn't going to be compatible with any other implementation, but should return the same hash
+        for equivalent elements.
     }
     function StringMD5(s: string): cardinal;
     var
@@ -1639,18 +1594,28 @@ unit PraUtil;
     var
         i: integer;
         curRef, linkBack: IInterface;
+        dupeCheckList: TStringList;
+        lookupKey: string;
     begin
         Result := TList.create;
+        dupeCheckList := TStringList.create;
 
         for i:= 0 to ReferencedByCount(toRef)-1 do begin
             curRef := WinningOverrideOrSelf(ReferencedByIndex(toRef, i));
             // linked?
             linkBack := getLinkedRef(curRef, usingKw);
 
-            if(isSameForm(linkBack, toRef)) then begin
-                Result.add(curRef);
+            if (isSameForm(linkBack, toRef)) then begin
+                // must be deduplicated
+                lookupKey := FormToStr(curRef);
+                if(dupeCheckList.indexOf(lookupKey) < 0) then begin
+                    dupeCheckList.add(lookupKey);
+                    Result.add(curRef);
+                end;
             end;
         end;
+
+        dupeCheckList.free();
     end;
 
     // Formlist-Manipulation functions

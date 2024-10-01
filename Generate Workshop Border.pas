@@ -164,7 +164,7 @@ unit WorkshopBorder;
         doFullPrec: boolean;
         heightHelperBoxEdid: string;
         autoPathBase: string;
-        brokenShitXedit: cardinal;
+        terrainBreakingXEditVersion: cardinal;
 
     procedure loadConfig();
     var
@@ -663,7 +663,7 @@ unit WorkshopBorder;
 
         //landValue := landOffset;
 
-        if (wbVersionNumber >= brokenShitXedit) then begin
+        if (wbVersionNumber >= terrainBreakingXEditVersion) then begin
             rows := ElementByPath(vhgt, 'Height Data');
         end else begin
             rows := ElementByPath(vhgt, 'Rows');
@@ -674,7 +674,7 @@ unit WorkshopBorder;
             yString := IntToStr(y);
             curRow := ElementByIndex(rows, y);
 
-            if (wbVersionNumber < brokenShitXedit) then begin
+            if (wbVersionNumber < terrainBreakingXEditVersion) then begin
                 curRow := ElementByPath(curRow, 'Columns');
             end;
             for x := 0 to 32 do begin
@@ -1428,13 +1428,13 @@ unit WorkshopBorder;
     // You can remove it if script doesn't require initialization code
     function Initialize: integer;
     begin
-        if(PRA_UTIL_VERSION < 12.0) then begin
-            AddMessage('This requires praUtil.pas version 12.0 or higher.');
+        if(PRA_UTIL_VERSION < 14.0) then begin
+            AddMessage('This requires praUtil.pas version 14.0 or higher.');
             Result := 1;
             exit;
         end;
 
-        brokenShitXedit := xEditVersionToCardinal(4, 1, 5, 'j');
+        terrainBreakingXEditVersion := xEditVersionToCardinal(4, 1, 5, 'h');
 
         debugIndex := 0;
         Result := 0;

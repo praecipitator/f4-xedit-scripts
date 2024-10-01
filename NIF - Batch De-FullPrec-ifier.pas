@@ -201,6 +201,11 @@ unit NifBatchDeFullPrec;
             exit;
         end;
 
+        if(floatEquals(x, y)) then begin
+            Result := true;
+            exit;
+        end;
+
         signX := (x > 0);
         signY := (y > 0);
 
@@ -208,7 +213,7 @@ unit NifBatchDeFullPrec;
             Result := false;
             exit;
         end;
-        
+
         if(not signX) then begin
             x := x * -1;
             y := y * -1;
