@@ -6,7 +6,7 @@
 unit PraUtil;
     const
         // the version constant
-        PRA_UTIL_VERSION = 14.0;
+        PRA_UTIL_VERSION = 14.1;
 
 
         // file flags
@@ -608,7 +608,7 @@ unit PraUtil;
 
         maybeMatch := regexExtract(someStr, '^([0-9a-fA-F]+)$', 1);
         if (maybeMatch <> '') then begin
-            maybeFormId := IntToStr('$' + maybeMatch);
+            maybeFormId := StrToInt64('$' + maybeMatch);
             if(maybeFormId > 0) then begin
                 Result := maybeFormId;
                 exit;
@@ -617,7 +617,7 @@ unit PraUtil;
 
         maybeMatch := regexExtract(someStr, '\[....:([0-9a-fA-F]{8})\]', 1);
         if (maybeMatch <> '') then begin
-            maybeFormId := IntToStr('$' + maybeMatch);
+            maybeFormId := StrToInt64('$' + maybeMatch);
             if(maybeFormId > 0) then begin
                 Result := maybeFormId;
                 exit;
@@ -933,17 +933,18 @@ unit PraUtil;
         end;
     end;
 
-
     function getFormByLoadOrderFormID(id: cardinal): IInterface;
     var
-        localFormId, fixedId, anotherFormId: cardinal;
-        loadOrderIndexInt, lightLOIndex, fileIndex: integer;
+        lightLOIndex, loadOrderIndexInt, localFormId, fixedId, anotherFormId: cardinal;
+        fileIndex: integer;
         theFile : IInterface;
         isLight : boolean;
+        watFoo: string;
     begin
         Result := nil;
 
         loadOrderIndexInt := ($FF000000 and id) shr 24;
+
 
         if(loadOrderIndexInt = $FE) then begin
             // fix the formID for ESL
@@ -1324,17 +1325,32 @@ unit PraUtil;
 		separatorPos: integer;
 		theFilename, formIdStr: string;
 		theFormId: cardinal;
+        regex: TPerlRegEx;
 	begin
 		Result := nil;
 		separatorPos := Pos(':', str);
 		if(separatorPos <= 0) then begin
 			exit;
 		end;
+        
+        
+        regex := TPerlRegEx.Create();
 
-		theFilename := copy(str, 1, separatorPos-1);
-		formIdStr := copy(str, separatorPos+1, length(str)-separatorPos+1);
+        try
+            regex.RegEx := '(.+):([0-9a-fA-F]+)';
+            regex.Subject := str;
 
-		Result := getFormByFilenameAndFormID(theFilename, StrToInt('$'+formIdStr));
+            if(regex.Match()) then begin
+                // misnomer, is actually the highest valid index of regex.Groups
+                if(regex.GroupCount >= 2) then begin
+                    theFilename := regex.Groups[1];
+                    formIdStr := regex.Groups[2];
+                    Result := getFormByFilenameAndFormID(theFilename, StrToInt64('$'+formIdStr));
+                end;
+            end;
+        finally
+            RegEx.Free;
+        end;
 	end;
 
 	function floatEqualsWithTolerance(val1, val2, tolerance: float): boolean;
