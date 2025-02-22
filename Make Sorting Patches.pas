@@ -13,6 +13,7 @@ unit MakeSortingPatches;
         taggingConfigDataFileName = ScriptsPath + 'SortingPatchData.json';
         typeConfigFileName = ScriptsPath + 'sorting-patches-type-map.txt';
         configFileName = ScriptsPath + 'multipatcher.json';
+        tagExtractionRegexWithBrackets = '^([\[\]\(\)\{\}|][^\[\]\(\)\{\}|]+[\[\]\(\)\{\}|]).*';
         tagExtractionRegexNoBrackets = '^[\[\]\(\)\{\}|]([^\[\]\(\)\{\}|]+)[\[\]\(\)\{\}|].*';
         tagStripRegex = '^[\[\]\(\)\{\}|].+[\[\]\(\)\{\}|] (.+)$';
 
@@ -81,7 +82,7 @@ unit MakeSortingPatches;
         dryRunCb := CreateCheckbox(frm, 230, 90, 'Dry-Run Mode');
         dryRunCb.checked := patcherConfig.B['dryRunMode'];
 
-        dumpTypesCb := CreateCheckbox(frm, 230, 110, 'Dump Types');
+        dumpTypesCb := CreateCheckbox(frm, 230, 110, 'Dump Missing Types');
         dumpTypesCb.checked := patcherConfig.B['dumpTypes'];
 
         btnOk     := CreateButton(frm, 100, 240, ' OK ');
@@ -122,6 +123,11 @@ unit MakeSortingPatches;
     function extractBareTag(text: string): string;
     begin
         Result := regexExtract(text, tagExtractionRegexNoBrackets, 1);
+    end;
+    
+    function extractBracketedTag(text: string): string;
+    begin
+        Result := regexExtract(text, tagExtractionRegexWithBrackets, 1);
     end;
 
     procedure loadTaggingConfigData();
@@ -216,6 +222,10 @@ unit MakeSortingPatches;
                 curFile := FindFile(curFileName);
                 if(not assigned(curFile)) then begin
                     curFile := AddNewFileName(curFileName, true);
+                    if(not assigned(curFile)) then begin
+                        AddMessage('Failed to generate file '+curFileName);
+                        raise Exception.Create('Failed to generate file '+curFileName);
+                    end;
                 end;
                 fileMap.addObject(taggingName, curFile);
             end;
@@ -610,7 +620,9 @@ unit MakeSortingPatches;
         Result := false;
     end;
 
-    function getTagFromName(text: string): string;
+    function getTagFromName(text: string; withBrackets: boolean): string;
+    var
+        len, tag: string;
     begin
         Result := '';
         len := length(text);
@@ -630,7 +642,11 @@ unit MakeSortingPatches;
             exit;
         end;
 
-        Result := extractBareTag(text);
+        if(withBrackets) then begin
+            Result := extractBracketedTag(text);
+        end else begin
+            Result := extractBareTag(text);
+        end;
     end;
     
     function isTagValid(tag: String; extraValidTags: TJsonArray): boolean;
@@ -645,7 +661,7 @@ unit MakeSortingPatches;
         // AddMessage('checkItemTagForCfg for '+text);
         Result := false;
 
-        tagBare := getTagFromName(text);
+        tagBare := getTagFromName(text, false);
         if(tagBare = '') then begin
             exit;
         end;
@@ -748,7 +764,7 @@ unit MakeSortingPatches;
         end else begin
             if(patcherConfig.B['keepValidTags']) then begin
                 prevName := DisplayName(newOverride);
-                prevTag := getTagFromName(prevName);
+                prevTag := getTagFromName(prevName, true);
                 
                 if(isTagValid(prevTag, curData.A['extraValidTags'])) then begin
                     tag := prevTag; // old tag gets used
@@ -776,11 +792,16 @@ unit MakeSortingPatches;
                 newName := prefixNameWithTag(tag, newNameBase);
             end;
 
+            prevName := DisplayName(newOverride);
+                
+            //if(prevName <> newName) then begin
+
             if(not dryRunMode) then begin
                 SetElementEditValues(newOverride, 'FULL', newName);
             end else begin
                 AddMessage('Would be setting newName: '+newName);
             end;
+            //end;
 
             exit;
         end else if(sig = 'ARMO') then begin
@@ -898,6 +919,8 @@ unit MakeSortingPatches;
             foundItemTypes.S[EditorID(e)] := typeStr;
         end;
 
+        if(LowerCase(typeStr) = 'none') then exit;
+
         // now apply it for each file
         for i:=0 to fileMap.count-1 do begin
             taggingName := fileMap[i];
@@ -928,11 +951,14 @@ unit MakeSortingPatches;
         end;
 
         if(patcherConfig.B['dumpTypes']) then begin
-            AddMessage('=== DUMPING TYPES ===');
+            AddMessage('=== DUMPING MISSING TYPES ===');
             for i:=0 to foundItemTypes.count-1 do begin
                 curEdid := foundItemTypes.Names[i];
-                curType := foundItemTypes.S[curEdid];
-                AddMessage(curEdid+'='+curType);
+                
+                if(getTypeFromConfig(curEdid) = '') then begin                
+                    curType := foundItemTypes.S[curEdid];
+                    AddMessage(curEdid+'='+curType);
+                end;
             end;
         end
 

@@ -40,7 +40,8 @@ unit ListAllAddonNodes;
         ext: string;
     begin
         outData := TStringList.create;
-        outData.add('Filename,Node Index,Editor ID');
+        //outData.add('Filename,Node Index,Editor ID');
+        outData.add('Editor ID,Node Index,Filename');
         
         targetFile := saveFileAs('Save CSV as');
         if(targetFile = '') then begin
@@ -71,7 +72,8 @@ unit ListAllAddonNodes;
 
         curIndex := GetElementNativeValues(e, 'DATA');
 
-        outData.add(GetFileName(GetFile(e))+','+IntToStr(curIndex)+','+EditorID(e));
+        //outData.add(GetFileName(GetFile(e))+','+IntToStr(curIndex)+','+EditorID(e));
+        outData.add(EditorID(e)+','+IntToStr(curIndex)+','+GetFileName(GetFile(e)));
         numSoFar := (outData.count - 1);
         if((numSoFar mod 50) = 0) then begin
             AddMessage('Found '+IntToStr(numSoFar)+' AddOn Nodes so far');

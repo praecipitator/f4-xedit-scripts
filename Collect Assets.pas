@@ -744,6 +744,9 @@ unit CollectAssets;
         // for ARMO
         processModelByPath(e, 'Male world model\MOD2');
         processModelByPath(e, 'Female world model\MOD3');
+        // for ARMA
+        processModelByPath(e, 'Male Biped Model\MOD2');
+        processModelByPath(e, 'Female Biped Model\MOD3');
 
         processModelByPath(e, 'Male 1st Person\MOD4');
         processModelByPath(e, 'Female 1st Person\MOD5');

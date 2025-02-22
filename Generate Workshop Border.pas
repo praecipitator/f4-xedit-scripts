@@ -1,5 +1,5 @@
 {
-    Workshop Border Generation Script.
+    Workshop Border Generation Script v2.0
 
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     !!! =========================================== IMPORTANT ============================================ !!!
@@ -8,6 +8,7 @@
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
     Run on exterior workshop reference. In theory, this should work on multiple workshops, showing the config UI for each.
+    NOTICE: please make sure your workshop areas have some overlap. The script doesn't work property if corners or edges are eactly aligned with each other.
 
     The resulting NIF is intended to be positioned at the workshop's position, but without any rotation.
     TIP: select the Border, press Ctrl+Shift+A, and click the Workshop to align it.
@@ -20,6 +21,10 @@
     Short explanation:
         The script combines all the workshop's build areas into a single shape, then walks along that shape's edge, taking fixed-length steps.
         At each step, it tries to find the terrain's height, and places a new point. Out of these points, the border mesh is generated.
+        
+    Changelog:
+        2.0:    - Fixed several issues with complex settlements made out of multiple build areas which don't all overlap with each other.
+                - The script now supports disjunct build areas, that is, when build areas don't overlap with each other at all.
 
     Explanation of the options in the UI:
         - Output File:
@@ -135,6 +140,8 @@ unit WorkshopBorder;
         FLAG_FULL_PREC = 16384;
         DEFAULT_AUTO_PATH_BASE = 'Meshes\WorkshopBorders\';
 
+        EPSILON = 0.0001;
+
 
 
     var
@@ -164,6 +171,7 @@ unit WorkshopBorder;
         doFullPrec: boolean;
         heightHelperBoxEdid: string;
         autoPathBase: string;
+        haveAnomalies: boolean;
         terrainBreakingXEditVersion: cardinal;
 
     procedure loadConfig();
@@ -333,8 +341,11 @@ unit WorkshopBorder;
         minX, minY, maxX, maxY, width, height: float;
         curX, curY, scaleFactor: float;
         curEdge: TJsonObject;
+
+        point1X, point1Y, point2X, point2Y: integer;
     begin
         //invert y: SVGs use HTML coordinates
+
         minX := 900000;
         minY := 900000;
         maxX := -900000;
@@ -361,6 +372,7 @@ unit WorkshopBorder;
             if(curX < minX) then minX := curX;
             if(curY < minY) then minY := curY;
         end;
+
 
         width := maxX - minX;
         height := maxY - minY;
@@ -396,13 +408,141 @@ unit WorkshopBorder;
         // now output the edges
         for i:=0 to poly.A['edges'].count-1 do begin
             curEdge := poly.A['edges'].O[i];
-            outLines.Add('<line x1="'+IntToStr(extraBorder + curEdge.O['a'].F['x'] * scaleFactor)+'" y1="'+IntToStr(extraBorder + curEdge.O['a'].F['y'] * scaleFactor * -1)+'" '+
-            'x2="'+IntToStr(extraBorder + curEdge.O['b'].F['x'] * scaleFactor)+'" y2="'+IntToStr(extraBorder + curEdge.O['b'].F['y'] * scaleFactor * -1)+'" stroke="#ff0000" stroke-width="8" />');
+
+            point1X := extraBorder + curEdge.O['a'].F['x'] * scaleFactor;
+            point1Y := extraBorder + curEdge.O['a'].F['y'] * scaleFactor * -1;
+            point2X := extraBorder + curEdge.O['b'].F['x'] * scaleFactor;
+            point2Y := extraBorder + curEdge.O['b'].F['y'] * scaleFactor * -1;
+
+            outLines.Add('<line x1="'+IntToStr(point1X)+'" y1="'+IntToStr(point1Y)+'" '+
+            'x2="'+IntToStr(point2X)+'" y2="'+IntToStr(point2Y)+'" stroke="#ff0000" stroke-width="8" />');
+
+            outLines.Add('<text x="'+IntToStr(point1X)+'" y="'+IntToStr(point1Y)+'" class="small">('+FloatToStr(curEdge.O['a'].F['x'])+'/'+FloatToStr(curEdge.O['a'].F['y'])+')</text>');
+            outLines.Add('<text x="'+IntToStr(point2X)+'" y="'+IntToStr(point2Y)+'" class="small">('+FloatToStr(curEdge.O['b'].F['x'])+'/'+FloatToStr(curEdge.O['b'].F['y'])+')</text>');
         end;
 
         outLines.Add('</svg>');
         outLines.SaveToFile(svgPath+fName);
 
+        outLines.free();
+    end;
+
+    procedure writeSvgClusters(clusters: TJsonArray; fName: string);
+    var
+        outLines: TStringList;
+        i, j, k: integer;
+        minX, minY, maxX, maxY, width, height: float;
+        curX, curY, scaleFactor: float;
+        curEdge, curPoint, prevPoint: TJsonObject;
+        curCluster, curBox: TJsonArray;
+        clusterColors: TSTringList;
+        curColor: string;
+
+        point1X, point1Y, point2X, point2Y: integer;
+    begin
+        //invert y: SVGs use HTML coordinates
+        minX := 900000;
+        minY := 900000;
+        maxX := -900000;
+        maxY := -900000;
+
+
+        for i:=0 to clusters.count-1 do begin
+            curCluster := clusters.A[i];
+            for j:=0 to curCluster.count-1 do begin
+                curBox := curCluster.A[j];
+                for k:=0 to curBox.count-1 do begin
+                    curPoint := curBox.O[k];
+
+                    curX := curPoint.O['pos'].F['x'];
+                    curY := curPoint.O['pos'].F['y'] * -1;
+
+                    if(curX > maxX) then maxX := curX;
+                    if(curY > maxY) then maxY := curY;
+
+                    if(curX < minX) then minX := curX;
+                    if(curY < minY) then minY := curY;
+                end;
+            end;
+        end;
+
+
+        width := maxX - minX;
+        height := maxY - minY;
+
+        if(width < 0) then width := width * -1;
+        if(height < 0) then height := height * -1;
+
+        if(width = 0) then width := 10;
+        if(height = 0) then height := 10;
+
+        // now scale it somewhat
+        // scale = 1024 = targetWidth
+        if(width > height) then begin
+            scaleFactor := targetWidth / width; // width * x = 1024 ; x = 1024 / width
+        end else begin
+            scaleFactor := targetWidth / height;
+        end;
+
+
+
+        width := width * scaleFactor;
+        height := height * scaleFactor;
+
+        width := width + extraBorder*2;
+        height := height + extraBorder*2;
+
+        outLines := TStringList.create();
+        outLines.Add('<svg width="'+IntToStr(width)+'" height="'+IntToStr(height)+'" viewBox="'+IntToStr(minX * scaleFactor)+' '+IntToStr(minY * scaleFactor)+' '+IntToStr(width)+' '+IntToStr(height)+'"');
+        outLines.Add('xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"');
+        outLines.Add('xmlns:svg="http://www.w3.org/2000/svg"');
+        outLines.Add('xmlns="http://www.w3.org/2000/svg">');
+
+        clusterColors := TStringList.create();
+        clusterColors.Add('#ff0000');
+        clusterColors.Add('#00ff00');
+        clusterColors.Add('#0000ff');
+        clusterColors.Add('#ffff00');
+        clusterColors.Add('#ff00ff');
+        clusterColors.Add('#00ffff');
+
+        // now output the points as edges.. somehow
+        for i:=0 to clusters.count-1 do begin
+            curCluster := clusters.A[i];
+            curColor := clusterColors[i mod clusters.count];
+            for j:=0 to curCluster.count-1 do begin
+                curBox := curCluster.A[j];
+
+
+                for k:=1 to curBox.count do begin
+                    // write this box
+                    prevPoint := curBox.O[k-1];
+                    if(k = curBox.count) then begin
+                        curPoint := curBox.O[0];
+                    end else begin
+                        curPoint := curBox.O[k];
+                    end;
+
+                    point1X := extraBorder + curPoint.O['pos'].F['x'] * scaleFactor;
+                    point1Y := extraBorder + curPoint.O['pos'].F['y'] * scaleFactor * -1;
+
+                    point2X := extraBorder + prevPoint.O['pos'].F['x'] * scaleFactor;
+                    point2Y := extraBorder + prevPoint.O['pos'].F['y'] * scaleFactor * -1;
+
+
+                    outLines.Add('<line x1="'+IntToStr(point1X)+'" y1="'+IntToStr(point1Y)+'" '+
+                        'x2="'+IntToStr(point2X)+'" y2="'+IntToStr(point2Y)+'" stroke="'+curColor+'" stroke-width="8" />');
+
+                    outLines.Add('<text x="'+IntToStr(point1X)+'" y="'+IntToStr(point1Y)+'" class="small">('+FloatToStr(curPoint.O['pos'].F['x'])+'/'+FloatToStr(curPoint.O['pos'].F['y'])+')</text>');
+                    outLines.Add('<text x="'+IntToStr(point2X)+'" y="'+IntToStr(point2Y)+'" class="small">('+FloatToStr(prevPoint.O['pos'].F['x'])+'/'+FloatToStr(prevPoint.O['pos'].F['y'])+')</text>');
+                end;
+            end;
+        end;
+
+        outLines.Add('</svg>');
+        outLines.SaveToFile(svgPath+fName);
+
+        clusterColors.free();
         outLines.free();
     end;
 
@@ -1229,6 +1369,8 @@ unit WorkshopBorder;
         Result := sign * Power(2, exponent) * (x + val/1024);
     end;
 
+    {
+        Deprecated
     procedure writeHalfPrecVertexCoordsManually(x, y, z: float; vertex: TwbNifBlock);
     var
         encX, encY, encZ: cardinal;
@@ -1260,83 +1402,8 @@ unit WorkshopBorder;
         something[5] := encZM;
 
         vertex.NativeValues['Vertex'] := something;
-        {
-        not like this
-        vertex.NativeValues['Vertex'][0] := encXL;
-        vertex.NativeValues['Vertex'][1] := encXM;
-        vertex.NativeValues['Vertex'][2] := encYL;
-        vertex.NativeValues['Vertex'][3] := encYM;
-        vertex.NativeValues['Vertex'][4] := encZL;
-        vertex.NativeValues['Vertex'][5] := encZM;
-        }
     end;
-
-    procedure testVertData(wat: variant);
-    var
-        i, test: integer;
-        decX, decY, decZ: float;
-        reencX: cardinal;
-    begin
-        decX := halfPrecToFloat(wat[1], wat[0]);
-        decY := halfPrecToFloat(wat[3], wat[2]);
-        decZ := halfPrecToFloat(wat[5], wat[4]);
-        AddMessage('Decoded: '+FloatToStr(decX)+' '+FloatToStr(decY)+' '+FloatToStr(decZ));
-        // try reencoding the x
-        reencX := floatToHalfPrec(decX);
-        AddMessage('reencX'+IntToHex(reencX, 2));
-        // 6 long. maybe 12 for double precision?
-        // one float seems to be 2 bytes(?)
-        {
-            vertData #0 -0.123474 -96.000000 168.000000
-            got this: 0 -> 231 -> E7 <- least significant
-            got this: 1 -> 175 -> AF <- most significant
-                -> AFE7 = 1010 1111 1110 0111
-                          sEEE EEff ffff ffff
-                  exp: 01011: 11?? -15 + x = -4??
-                  fra: 999? -> 0,9755859375 * 0,0625
-                  // I think we need to subtract 15 from the expontent, but it must not be lower than -14
-                  // -> 0,12347412109375 * -1
-                  // exp = max(E - 15, -14)
-                  // sgn = if(s == 1) -1 else 1
-                  // x   = if(exp == 0) 0 else 1
-                  // val = sgn * 2^exp * (x + f/1024)
-
-            got this: 2 -> 0   -> 00
-            got this: 3 -> 214 -> D6
-                -> D600 = 1101 0110 0000 0000
-
-            got this: 4 -> 64  -> 40
-            got this: 5 -> 89  -> 59
-        }
-
-    end;
-
-    procedure testVertexData(vertData: TwbNifBlock);
-    var
-        i: integer;
-        added, wat: TwbNifBlock;
-        something: variant;
-        fl: float;
-    begin
-        // vertData.Clear; // nope
-        // added := vertData.Add(); // this works. I think it also returns something
-        // try removing it
-        //vertData.Remove();
-        // added.remove(); // this works
-
-        for i:=0 to vertData.count-1 do begin
-            wat := vertData[i];
-            //AddMessage('vertData #'+IntToStr(i)+' '+wat.EditValues['Vertex']);
-            something := wat.NativeValues['Vertex'];
-
-            AddMessage('vertData #'+IntToStr(i)+' '+wat.EditValues['Vertex'] );
-            testVertData(something);
-            //fl := something[0];
-            //AddMessage('got this: '+FloatToStr(fl));
-        end;
-
-        AddMessage(vertData.toJson(vertData));
-    end;
+    }
 
     procedure ClearTriangleData(Triangles: TwbNifBlock);
     var
@@ -1360,15 +1427,17 @@ unit WorkshopBorder;
         end;
     end;
 
-    procedure writeNif();
+    procedure writeNifFromPolygons(polygons: TJsonArray);
     var
         Nif : TwbNifFile;
         nifJson, triShapeJson, vertexDataJson, trianglesJson: TJsonObject;
 
         triShapeBlock, vertexData, Triangles, vertexDesc: TwbNifBlock;
         curEdge: TJsonObject;
-        i: integer;
+        i, j: integer;
         nifDir: string;
+
+        curPoly: TJsonObject;
     begin
 
         nifJson := createNifBase();
@@ -1391,10 +1460,13 @@ unit WorkshopBorder;
             vertexDesc.NativeValues['VF'] := (vertexDesc.NativeValues['VF'] or FLAG_FULL_PREC);
         end;
 
-        for i:=0 to currentPolygon.A['edges'].count-1 do begin
-            curEdge := currentPolygon.A['edges'].O[i];
-            writeEdgeToNif(curEdge, vertexData, Triangles, false);
-            writeEdgeToNif(curEdge, vertexData, Triangles, true);
+        for j:=0 to polygons.count-1 do begin
+            curPoly := polygons.O[j];
+            for i:=0 to curPoly.A['edges'].count-1 do begin
+                curEdge := curPoly.A['edges'].O[i];
+                writeEdgeToNif(curEdge, vertexData, Triangles, false);
+                writeEdgeToNif(curEdge, vertexData, Triangles, true);
+            end;
         end;
 
         triShapeBlock.EditValues['Num Triangles'] := Triangles.count;
@@ -1428,8 +1500,8 @@ unit WorkshopBorder;
     // You can remove it if script doesn't require initialization code
     function Initialize: integer;
     begin
-        if(PRA_UTIL_VERSION < 14.0) then begin
-            AddMessage('This requires praUtil.pas version 14.0 or higher.');
+        if(PRA_UTIL_VERSION < 16.0) then begin
+            AddMessage('This requires praUtil.pas version 16.0 or higher.');
             Result := 1;
             exit;
         end;
@@ -1449,6 +1521,8 @@ unit WorkshopBorder;
         loadCellCache();
 
         loadConfig();
+
+        haveAnomalies := false;
     end;
 
     function getSizeVector(e: IInterface): TJsonObject;
@@ -1471,11 +1545,25 @@ unit WorkshopBorder;
         Result := false;
         // ported version of this:
         //https://wrfranklin.org/Research/Short_Notes/pnpoly.html
+        {
+            int pnpoly(int nvert, float *vertx, float *verty, float testx, float testy)
+            |*
+              int i, j, c = 0;
+              for (i = 0, j = nvert-1; i < nvert; j = i++) |*
+                if ( ((verty[i]>testy) != (verty[j]>testy)) &&
+                 (testx < (vertx[j]-vertx[i]) * (testy-verty[i]) / (verty[j]-verty[i]) + vertx[i]) )
+                   c = !c;
+              *|
+              return c;
+            *|
+
+        }
 
         // i = 0;
         // j := numVerts-1;
         for i:=0 to polygonEdges.count-1 do begin
             curEdge := polygonEdges.O[i];
+
             {
             // try this shortcut
             if(isPointOnEdgeFloats(curEdge, testX, testY)) then begin
@@ -1483,6 +1571,7 @@ unit WorkshopBorder;
                 exit;
             end;
             }
+
             curX := curEdge.O['a'].F['x']; // vertx[i]
             curY := curEdge.O['a'].F['y']; // verty[i]
 
@@ -1503,6 +1592,9 @@ unit WorkshopBorder;
         end;
     end;
 
+    {
+        TODO: should I actually use this, instead of the other function?
+    
     function isPointOnOrInPolygonEdges(polygonEdges: TJsonArray; testX, testY: float): boolean;
     var
         i, j, numVerts: integer;
@@ -1545,6 +1637,7 @@ unit WorkshopBorder;
             //i := i + 1;
         end;
     end;
+    
 
     function isPointOnPolygonEdges(polygonEdges: TJsonArray; testX, testY: float): boolean;
     var
@@ -1566,6 +1659,7 @@ unit WorkshopBorder;
 
         end;
     end;
+    }
 
     function getEdgesFromPoints(points: TJsonArray): TJsonArray;
     var
@@ -1656,6 +1750,15 @@ unit WorkshopBorder;
         end;
     end;
 
+    function isValueBetween(value1, value2, valueToCheck: float): boolean;
+    begin
+        if(value1 < value2) then begin
+            Result := (value1 <= valueToCheck) and (valueToCheck <= value2);
+        end else begin
+            Result := (value2 <= valueToCheck) and (valueToCheck <= value1);
+        end;
+    end;
+
     function isPointOnEdgeFloats(edge: TJsonObject; x, y: float): boolean;
     var
         m, t, temp: float;
@@ -1669,20 +1772,20 @@ unit WorkshopBorder;
         // m*(x1-x2) = y1-y2
         // m = (y1-y2)/(x1-x2)
 
-        if(edge.O['a'].F['x'] = edge.O['b'].F['x']) then begin
+        if floatEquals(edge.O['a'].F['x'], edge.O['b'].F['x']) then begin
             // vertical line
 
-            if(edge.O['a'].F['x'] = x) then begin
-                Result := (edge.O['a'].F['y'] <= y) and (edge.O['b'].F['y'] >= y);
+            if floatEquals(edge.O['a'].F['x'], x) then begin
+                Result := isValueBetween(edge.O['a'].F['y'], edge.O['b'].F['y'], y);
             end;
             exit;
         end;
 
-        if(edge.O['a'].F['y'] = edge.O['b'].F['y']) then begin
+        if floatEquals(edge.O['a'].F['y'], edge.O['b'].F['y']) then begin
 
             // horizontal line
-            if(edge.O['a'].F['y'] = y) then begin
-                Result := (edge.O['a'].F['x'] <= x) and (edge.O['b'].F['x'] >= x);
+            if floatEquals(edge.O['a'].F['y'], y) then begin
+                Result := isValueBetween(edge.O['a'].F['x'], edge.O['b'].F['x'], x);
             end;
             exit;
         end;
@@ -1692,7 +1795,7 @@ unit WorkshopBorder;
         t := edge.O['a'].F['y'] - m*edge.O['a'].F['x'];
 
         temp := m*x + t;
-        Result := floatEqualsWithTolerance(temp, y, 0.01);
+        Result := floatEquals(temp, y);
     end;
 
     function isPointOnEdge(edge, point: TJsonObject): boolean;
@@ -1788,19 +1891,21 @@ unit WorkshopBorder;
         // https://en.wikipedia.org/wiki/Intersection_(geometry)
 
         x1 := edge1.O['a'].F['x'];
-        x2 := edge1.O['b'].F['x'];
         y1 := edge1.O['a'].F['y'];
+
+        x2 := edge1.O['b'].F['x'];
         y2 := edge1.O['b'].F['y'];
 
+
         x3 := edge2.O['a'].F['x'];
-        x4 := edge2.O['b'].F['x'];
         y3 := edge2.O['a'].F['y'];
+
+        x4 := edge2.O['b'].F['x'];
         y4 := edge2.O['b'].F['y'];
 
 
         // s*(x2-x1)-t*(x4-x3)=x3-x1
         // s*(y2-y1)-t*(y4-y3)=y3-y1
-        // don't dare to try the cramer's rule rn
 
         // s*(x2-x1)=x3-x1 + t*(x4-x3)
         // s*(y2-y1)=y3-y1 + t*(y4-y3)
@@ -1812,11 +1917,13 @@ unit WorkshopBorder;
         // (x3-x1 + t*(x4-x3)) * (y2-y1) = (y3-y1 + t*(y4-y3)) * (x2-x1)
         // (x3-x1)*(y2-y1) + t*(x4-x3)*(y2-y1) = (y3-y1)*(x2-x1) + t*(y4-y3)*(x2-x1)
         // t*(x4-x3)*(y2-y1) - t*(y4-y3)*(x2-x1) = (y3-y1)*(x2-x1) - (x3-x1)*(y2-y1)
+
+
         // t*((x4-x3)*(y2-y1) - (y4-y3)*(x2-x1)) = (y3-y1)*(x2-x1) - (x3-x1)*(y2-y1)
         // t = ( (y3-y1)*(x2-x1) - (x3-x1)*(y2-y1) ) / ( (x4-x3)*(y2-y1) - (y4-y3)*(x2-x1) )
 
         temp1 := ( (x4-x3)*(y2-y1) - (y4-y3)*(x2-x1) );
-        if(temp1 = 0) then begin
+        if floatEquals(temp1, 0) then begin
             // in this case, we seem to have the same incline and be overlapping
             Result := intersectParallelEdges(edge1, edge2);
             //AddMessage('Bork intersect: Edge1='+edge1.toString()+', Edge2='+edge2.toString()+', point='+Result.toString());
@@ -1825,9 +1932,9 @@ unit WorkshopBorder;
 
         t := ( (y3-y1)*(x2-x1) - (x3-x1)*(y2-y1) ) / temp1;
 
-        if (x2-x1 = 0) then begin
+        if floatEquals(x2-x1, 0) then begin
             // means edge1 is a vertical (in Y direction) line
-            if(y2-y1 = 0) then begin
+            if floatEquals(y2-y1, 0) then begin
                 // this shouldn't happen, this would mean, edge1 has zero length
                 AddMessage('ERROR: zero-length edge recieved');
                 exit;
@@ -1839,18 +1946,28 @@ unit WorkshopBorder;
 
 
         // now s and t must be between 0 and 1
-        if (0.0 <= s) and (s <= 1.0) then begin
-            if (0.0 <= t) and (t <= 1.0) then begin
+        if (0.0 - EPSILON <= s) and (s <= 1.0 + EPSILON) then begin
+            if (0.0 - EPSILON <= t) and (t <= 1.0 + EPSILON) then begin
                 // yes
                 xResult := (x1 + s*(x2-x1));
                 yResult := (y1 + s*(y2-y1));
                 Result := TJsonObject.create;
                 Result.F['x'] := xResult;
                 Result.F['y'] := yResult;
+
+                //failsafe:
+                if(not isPointOnEdge(edge1, Result)) then begin
+                    AddMessage('ERRROR: intersect point is not on edge1!');
+                end;
+
+                if(not isPointOnEdge(edge2, Result)) then begin
+                    AddMessage('ERRROR: intersect point is not on edge2!');
+                end;
             end;
         end;
     end;
 
+    {
     function intersectPolyWithEdge(poly, testEdge: TJsonObject): TJsonObject;
     var
         i: integer;
@@ -1868,6 +1985,7 @@ unit WorkshopBorder;
             end;
         end;
     end;
+    }
 
     function intersectPolyWithEdgeMulti(poly, testEdge: TJsonObject): TJsonArray;
     var
@@ -1880,6 +1998,9 @@ unit WorkshopBorder;
 
             isPoint := intersectEdgeWithEdge(curEdge, testEdge);
             if(nil <> isPoint) then begin
+                if(debugMode) then begin
+                    AddMessage('found intersection between edge '+testEdge.toString()+' and '+curEdge.toString()+': '+isPoint.toString());
+                end;
                 // found one
                 appendObjectToArray(Result, isPoint);
                 // Result := isPoint;
@@ -1902,6 +2023,10 @@ unit WorkshopBorder;
         newEdge.O['b'].F['x'] := p2.F['x'];
         newEdge.O['b'].F['y'] := p2.F['y'];
         newEdge.O['b'].F['z'] := p2.F['z'];
+
+        if(debugMode) then begin
+            AddMessage('appended edge '+newEdge.toString());
+        end;
     end;
 
     procedure insertSortPointIntoListRec(sortPoint: TJsonObject; sortedList: TJsonArray; startOffset, endOffset: integer);
@@ -2090,6 +2215,11 @@ unit WorkshopBorder;
         tempResult.free();
     end;
 
+    function arePointsEqual(p1, p2: TJsonObject): boolean;
+    begin
+        Result :=  (floatEquals(p1.F['x'], p2.F['x']) and floatEquals(p1.F['y'], p2.F['y']));
+    end;
+
     // run this twice, with different order of arguments, to generate two halves, then merge
     procedure mergePolygonsHalf(poly1, poly2, outPoly: TJsonObject);
     var
@@ -2116,6 +2246,8 @@ unit WorkshopBorder;
 
             intersectPoints := intersectPolyWithEdgeMulti(poly1, curEdge);
 
+            // the edge belongs to poly2. we are testing whenever the end points of the edge are within poly1 or not.
+            //
             pointAin := isPointInPolygonEdges(poly1.A['edges'], curEdge.O['a'].F['x'], curEdge.O['a'].F['y']);
             pointBin := isPointInPolygonEdges(poly1.A['edges'], curEdge.O['b'].F['x'], curEdge.O['b'].F['y']);
 
@@ -2145,13 +2277,16 @@ unit WorkshopBorder;
                         end else begin;
                             // this can happen, sigh. probably if there are parallel lines
                             // let's try adding it
-                            AddMessage('ANOMALY: Edge doesn''t intersect, but points are halfway. Skipping');
+                            AddMessage('ANOMALY: Edge doesn''t intersect, but one of it''s points is inside, and the other is outside');
+                            haveAnomalies := true;
                             //appendObjectToArray(edgesArray, curEdge);
                             //AddMessage('!!!ANOMALY: Edge doesn''t intersect, but points are halfway? This makes no sense');
                         end;
                     end;
                 1:  begin
-                        // AddMessage('One Intersects');
+                        if(debugMode) then begin
+                            AddMessage('One Intersect');
+                        end;
                         // one intersect (IS):
                         //  - A is in:  add IS--B
                         //  - A is out: add A--IS
@@ -2165,10 +2300,29 @@ unit WorkshopBorder;
                             if(debugMode) then begin
                                 AddMessage(' A--IS');
                             end;
+                            // so apparently, something can be wrong here
                             appendEdge(edgesArray, curEdge.O['a'], isPoint1);
                         end else begin
-                            // we definitely add the inbetween point. but then what?
-                            AddMessage('ANOMALY: one intersect, but pointAin='+BoolToStr(pointAin)+' pointBin='+BoolToStr(pointBin)+'. Skipping');
+                            {
+                            // this can mean that the intersect point lies right on the edge, but what does THAT mean?
+                            if(arePointsEqual(curEdge.O['a'], intersectPoints.O[0])) then begin
+                                // add the edge as is
+                                AddMessage(' A--B');
+                                appendEdge(edgesArray, curEdge.O['a'], curEdge.O['b']);
+                            end else if(arePointsEqual(curEdge.O['b'], intersectPoints.O[0])) then begin
+                                // add the edge as is
+                                AddMessage(' A--B');
+                                appendEdge(edgesArray, curEdge.O['a'], curEdge.O['b']);
+                            end else begin
+                                AddMessage('ANOMALY: one intersect, but pointAin='+BoolToStr(pointAin)+' pointBin='+BoolToStr(pointBin)+'. Skipping');
+                                AddMessage('Point A: '+curEdge.O['a'].toString());
+                                AddMessage('Point B: '+curEdge.O['b'].toString());
+                                AddMessage('Intersect: '+intersectPoints.O[0].toString());
+                            end;
+                            }
+                            AddMessage('ANOMALY: one intersect, but pointAin='+BoolToStr(pointAin)+' pointBin='+BoolToStr(pointBin));
+                            AddMessage('This probably means that your build areas are aligned too much, you can try rotating, extending, or moving one of them by a little bit.');
+                            haveAnomalies := true;
                         end;
                     end;
                 else begin
@@ -2201,6 +2355,7 @@ unit WorkshopBorder;
 
                         if ((sortedIntersectPoints.count mod 2) <> 0) then begin
                             AddMessage('ERROR: sortedIntersectPoints ended up at an odd length!');
+                            haveAnomalies := true;
                             exit;
                         end;
 
@@ -2324,7 +2479,7 @@ unit WorkshopBorder;
         zeroRot.free();
     end;
 
-    procedure addBox(boxRef: IInterface);
+    function addBoxToCluster(boxPoints: TJsonArray; clusterPolygon: TJsonObject): TJsonObject;
     var
         boxPos, boxRot, boxSize, curPoint: TJsonObject;
         boxPosAdj, curPoly, newPoly: TJsonObject;
@@ -2332,67 +2487,33 @@ unit WorkshopBorder;
         points, edges: TJsonArray;
         boxDownSize: float;
     begin
-        if(GetElementEditValues(boxRef, 'XPRM\Type') <> 'Box') then begin
-            AddMessage('Can only process boxes so far: '+FullPath(boxRef));
-            exit;
-        end;
-
-        boxRot := getRotationVector(boxRef, 'DATA');
-        if(boxRot.F['x'] <> 0.0) or (boxRot.F['y'] <> 0.0) then begin
-            AddMessage('cannot process boxes rotated on X or Y yet: '+FullPath(boxRef));
-            boxRot.free();
-            exit;
-        end;
-        boxSize := getSizeVector(boxRef);
-        if(boxSize.F['x'] = 0.0) or (boxSize.F['y'] = 0.0) or (boxSize.F['z'] = 0.0) then begin
-            AddMessage('Box seems to have zero size: '+FullPath(boxRef));
-            boxSize.free();
-            boxRot.free();
-            exit;
-        end;
-
-        boxPos := getPositionVector(boxRef, 'DATA');
-        boxPosAdj := VectorSubtract(boxPos, wsOrigin);
 
 
-        boxDownSize := boxPosAdj.F['z'] - ( boxSize.F['z'] / 2);
-
-        if(boxDownSize < wsMinHeight) then begin
-            wsMinHeight := boxDownSize;
-        end;
-
-        boxPosAdj.F['z'] := 0;
-
-        points := getBoxPoints(boxPosAdj, boxRot, boxSize, false);
-        if(debugMode) then begin
-            AddMessage('box points='+points.toString());
-        end;
-
-        edges := getEdgesFromPoints(points);
-
+        edges := getEdgesFromPoints(boxPoints);
 
 
         curPoly := TJsonObject.create;
         curPoly.A['edges'] := edges;
         //AddMessage('curPoly='+curPoly.toString());
 
-
-        if(currentPolygon.count = 0) then begin
-            currentPolygon.free();
-            currentPolygon := curPoly;
+        if(clusterPolygon = nil) then begin
+            Result := curPoly;
+        end else if(clusterPolygon.count = 0) then begin
+            // clusterPolygon.free();
+            Result := curPoly;
         end else begin
-            newPoly := mergePolygons(curPoly, currentPolygon);
+            newPoly := mergePolygons(curPoly, clusterPolygon);
             //AddMessage('merged newPoly='+newPoly.toString());
             curPoly.free();
-            currentPolygon.free();
-            currentPolygon := newPoly;
+            //clusterPolygon.free();
+            Result := newPoly;
         end;
 
-        points.free();
-        boxSize.free();
-        boxRot.free();
-        boxPos.free();
-        boxPosAdj.free();
+        //points.free();
+        //boxSize.free();
+        //boxRot.free();
+        //boxPos.free();
+        //boxPosAdj.free();
     end;
 
     procedure addIntermediatePoints(worldSpace: IInterface; point1, point2: TJsonObject; edgesArray: TJsonArray; xOffset, yOffset, zOffset: float);
@@ -2446,7 +2567,9 @@ unit WorkshopBorder;
 
     end;
 
-    procedure addTerrainHeight(workShop, worldSpace: IInterface);
+
+
+    function addTerrainHeightForPolygon(curPolygon: TJsonObject; workShop, worldSpace: IInterface): TJsonObject;
     var
         i: integer;
         curEdge, point1, point2: TJsonObject;
@@ -2461,8 +2584,8 @@ unit WorkshopBorder;
         wsZ := GetElementNativeValues(workShop, 'DATA\Position\Z');
 
         // will this edit in-place, or return? We'll see
-        for i:=0 to currentPolygon.A['edges'].count-1 do begin
-            curEdge := currentPolygon.A['edges'].O[i];
+        for i:=0 to curPolygon.A['edges'].count-1 do begin
+            curEdge := curPolygon.A['edges'].O[i];
 
             point1 := cloneJsonObject(curEdge.O['a']);
             point2 := cloneJsonObject(curEdge.O['b']);
@@ -2486,9 +2609,11 @@ unit WorkshopBorder;
             point2.free();
         end;
 
-        prevPolygon := currentPolygon;
-        currentPolygon := newPolygon;
-        prevPolygon.free();
+        Result := newPolygon;
+
+        //prevPolygon := currentPolygon;
+        //currentPolygon := newPolygon;
+        //prevPolygon.free();
     end;
 
     function ShowSaveFileDialogWithStartPath(title: string; filter: string; startPath: string): string;
@@ -2843,11 +2968,184 @@ unit WorkshopBorder;
         Result := pathLinksTo(wsCell, 'Worldspace');
     end;
 
+    function prepareBoxPoint(boxRef: IInterface): TJsonArray;
+    var
+        boxPos, boxRot, boxSize, curPoint: TJsonObject;
+        boxPosAdj, curPoly, newPoly: TJsonObject;
+
+        points, edges: TJsonArray;
+        boxDownSize: float;
+    begin
+        Result := nil;
+        if(GetElementEditValues(boxRef, 'XPRM\Type') <> 'Box') then begin
+            AddMessage('Can only process boxes so far: '+FullPath(boxRef));
+            exit;
+        end;
+
+        boxRot := getRotationVector(boxRef, 'DATA');
+        if(boxRot.F['x'] <> 0.0) or (boxRot.F['y'] <> 0.0) then begin
+            AddMessage('cannot process boxes rotated on X or Y yet: '+FullPath(boxRef));
+            boxRot.free();
+            exit;
+        end;
+        boxSize := getSizeVector(boxRef);
+        if(boxSize.F['x'] = 0.0) or (boxSize.F['y'] = 0.0) or (boxSize.F['z'] = 0.0) then begin
+            AddMessage('Box seems to have zero size: '+FullPath(boxRef));
+            boxSize.free();
+            boxRot.free();
+            exit;
+        end;
+
+        boxPos := getPositionVector(boxRef, 'DATA');
+        boxPosAdj := VectorSubtract(boxPos, wsOrigin);
+
+
+        boxDownSize := boxPosAdj.F['z'] - ( boxSize.F['z'] / 2);
+
+        if(boxDownSize < wsMinHeight) then begin
+            wsMinHeight := boxDownSize;
+        end;
+
+        boxPosAdj.F['z'] := 0;
+
+        Result := getBoxPoints(boxPosAdj, boxRot, boxSize, false);
+
+        boxSize.free();
+        boxRot.free();
+        boxPos.free();
+        boxPosAdj.free();
+    end;
+
+    function doPolysIntersect(points1, points2: TJsonArray): boolean;
+    var
+        edges1: TJsonArray;
+        point: TJsonObject;
+        i: integer;
+    begin
+        edges1 := getEdgesFromPoints(points1);
+
+        for i:=0 to points2.count-1 do begin
+            point := points2.O[i];
+            if(isPointInPolygonEdges(edges1, point.O['pos'].F['x'], point.O['pos'].F['y'])) then begin
+                Result := true;
+                exit;
+            end;
+            {
+            curEdge.O['a'].F['x'] := point1.O['pos'].F['x'];
+            curEdge.O['a'].F['y'] := point1.O['pos'].F['y'];
+            }
+        end;
+        Result := false;
+    end;
+
+    function doesPolyIntersectWithList(listOfPoints, points: TJsonArray): boolean;
+    var
+        i: integer;
+    begin
+        for i:=0 to listOfPoints.count - 1 do begin
+            if(doPolysIntersect(listOfPoints.A[i], points)) then begin
+                Result := true;
+                exit;
+            end;
+
+            if(doPolysIntersect(points, listOfPoints.A[i])) then begin
+                Result := true;
+                exit;
+            end;
+        end;
+        Result := false;
+    end;
+
+    procedure ensureArrayLength(arr: TJsonArray; targetLength: integer);
+    var
+        i: integer;
+    begin
+        while(arr.count < targetLength) do begin
+            arr.addArray();
+        end;
+    end;
+
+    {
+        Do three things for the boxRefs:
+        1.) transform them into arrays of points (return values of getBoxPoints)
+        2.) sort these in such a way, that each box besides the first has at least one point within any of the previous boxes
+        3.) return an array of arrays of arrays of points:
+            first layer: one entry for each disjunct border
+            second layer: one entry for each box
+            third layer: one entry for each point (should be exactly 4)
+    }
+    function prepareBoxPoints(boxRefs: TList): TJsonArray;
+    var
+        i, clusterNr: integer;
+        curBox, firstBox: TJsonArray;
+        boxesUnsorted, currentCluster: TJsonArray;
+        done, changesThisIteration: boolean;
+    begin
+        // Result: list of disjunct shapes
+        Result := TJsonArray.create();
+
+        if(boxRefs.count = 0) then begin
+            exit;
+        end;
+
+        boxesUnsorted := TJsonArray.create;
+
+        // DEBUG: try one less
+        for i:=0 to boxRefs.count-1 do begin
+            appendArrayToArray(boxesUnsorted, prepareBoxPoint(ObjectToElement(boxRefs[i])));
+        end;
+
+        clusterNr := 0;
+        while(boxesUnsorted.count > 0) do begin
+            firstBox := removeFromArray(boxesUnsorted, 0);
+
+            // - remove the first element from boxesUnsorted, put it into the current cluster nr
+            ensureArrayLength(Result, clusterNr + 1);
+            currentCluster := Result.A[clusterNr];
+            //AddMessage('trying to append to '+currentCluster.toJson()+' this '+firstBox.toJson());
+            appendArrayToArray(currentCluster, firstBox);
+            //AddMessage('while with the done');
+
+            done := false;
+            while(not done) do begin
+
+                // - keep iterating the rest
+                //  - if during iteration the current box intersects with any of the boxes in current cluster, remove it from boxesUnsorted and append it to current cluster.
+                //  - if one iteration runs through without finding any intersection, increment clusterNr by 1 and continue with the outer while loop.
+                changesThisIteration := false;
+
+                for i:=0 to boxesUnsorted.count-1 do begin
+                    curBox := boxesUnsorted.A[i];
+
+                    if(doesPolyIntersectWithList(currentCluster, curBox)) then begin
+                        changesThisIteration := true;
+                        curBox := removeFromArray(boxesUnsorted, i);
+                        appendArrayToArray(currentCluster, curBox);
+                        break;
+                    end;
+                end;
+
+                if(not changesThisIteration) then begin
+                    clusterNr := clusterNr + 1;
+                    done := true;
+                end;
+            end;
+        end;
+
+        boxesUnsorted.free();
+
+    end;
+
     procedure processWorkshop(wsRef: IInterface);
     var
         boxes: TList;
-        i: integer;
+        i, j: integer;
         watTest, worldSpace, wsCell: IInterface;
+        boxClusters: TJsonArray;
+        curInputCluster, curInputBox: TJsonArray;
+
+        curPoly, newPoly: TJsonObject;
+        clusterPolygons, polygonsWithHeight: TJsonArray;
     begin
         wsCell := pathLinksTo(wsRef, 'CELL');
         if(isCellInterior(wsCell)) then exit;
@@ -2869,7 +3167,7 @@ unit WorkshopBorder;
             boxes.free();
             exit;
         end;
-        AddMessage('Processing Workshop: ' + FullPath(wsRef));
+        AddMessage('Processing Workshop: ' + FullPath(wsRef)+' with '+IntToStr(boxes.count)+' build area boxes');
         if (not showGui(wsRef)) then begin
             exit;
         end;
@@ -2878,35 +3176,81 @@ unit WorkshopBorder;
         wsMinHeight := wsOrigin.F['z'] + 900000;
         borderMinHeight := wsMinHeight;
 
-        currentPolygon := TJsonObject.create;
+        //currentPolygon := TJsonObject.create;
 
-        //polygonEdges := TJsonObject.create;
-        AddMessage('Building 2D polygon out of '+IntToStr(boxes.count)+' build area primitives.');
-        for i:=0 to boxes.count-1 do begin
-            addBox(ObjectToElement(boxes[i]));
-        end;
+        // Sort the boxes, so that each box has at least one point within any of the previous ones
+        
+        AddMessage('Sorting build area boxes');
+        boxClusters := prepareBoxPoints(boxes);
 
-        // AddMessage('Output='+currentPolygon.toString());
+        //AddMessage(boxClusters.toJson(boxClusters));
+        // boxClusters.saveToFile('foobar.json', false);
         if(debugMode) then begin
-            writeSvg(currentPolygon, 'output.svg');
+            writeSvgClusters(boxClusters, 'clusters_unmerged.svg');
         end;
 
+        clusterPolygons := TJsonArray.create();
+
+        // now try to build N polys
+        AddMessage('Building '+IntToStr(boxClusters.count)+' 2D polygons');
+        for i:=0 to boxClusters.count-1 do begin
+            AddMessage('Building polygon #'+IntToStr(i+1));
+            curInputCluster := boxClusters.A[i];
+            curPoly := nil;
+
+            //addBoxToCluster
+            for j:=0 to curInputCluster.count-1 do begin
+                curInputBox := curInputCluster.A[j];
+                newPoly := addBoxToCluster(curInputBox, curPoly);
+                if(curPoly <> nil) then begin
+                    curPoly.free();
+                end;
+                curPoly := newPoly;
+            end;
+
+            appendObjectToArray(clusterPolygons, curPoly);
+
+            if(debugMode) then begin
+                writeSvg(curPoly, 'output_'+IntToStr(i)+'.svg');
+            end;
+            curPoly.free();
+        end;
+
+        if(haveAnomalies) then begin
+            AddMessage('Anomalies were found while trying to generate the border.');
+            AddMessage('You can try to tweak your build area boxes somewhat, make sure no points align exactly with other points or edges.');
+            AddMessage('No mesh will be generated for Workshop '+Name(wsRef));
+            wsOrigin.free();
+            boxes.free();
+            clusterPolygons.free();
+            exit;
+        end;
+
+        polygonsWithHeight := TJsonArray.create;
+
+        AddMessage('Loading helper markers');
+        // load helper boxes
         loadHelperBoxes();
 
-        AddMessage('Adding Terrain Height');
-        addTerrainHeight(wsRef, worldSpace);
 
+        AddMessage('Loading terrain height');
+        // add terrain height
+        for i:=0 to clusterPolygons.count-1 do begin
+            curPoly := clusterPolygons.O[i];
+            newPoly := addTerrainHeightForPolygon(curPoly, wsRef, worldSpace);
 
-
+            appendObjectToArray(polygonsWithHeight, newPoly);
+        end;
+        
+        // write the nif
         AddMessage('Writing NIF to '+saveNifAs);
-        writeNif();
+        writeNifFromPolygons(polygonsWithHeight);
         AddMessage('Finished!');
 
         wsOrigin.free();
-        //polygonEdges.free();
-
-        currentPolygon.free();
         boxes.free();
+        clusterPolygons.free();
+        polygonsWithHeight.free();
     end;
 
     procedure testReference(e: IInterface);

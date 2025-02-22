@@ -783,8 +783,9 @@ end;
 function AddElementByString(const r: IInterface; const s: String): IInterface;
 begin
 	Result := GetElement(r, s);
-	if not Assigned(Result) then
+	if not Assigned(Result) then begin
 		Result := Add(r, s, True);
+	end;
 end;
 
 // --------------------------------------------------------------------

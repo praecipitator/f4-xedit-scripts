@@ -6,7 +6,7 @@
 unit PraUtil;
     const
         // the version constant
-        PRA_UTIL_VERSION = 14.1;
+        PRA_UTIL_VERSION = 16.0;
 
 
         // file flags
@@ -1052,6 +1052,17 @@ unit PraUtil;
     end;
 
     {
+        Fixed version of IntToHex which will output a 8-char string representing a FormID without crashing due to overflow
+    }
+    function FormIdToHex(fid: cardinal): string;
+    begin
+        Result := IntToHex64(fid, 8); // it's still going to make 16 character long strings if the number is "negative"
+        if(Length(Result) > 8) then begin
+            Result := copy(Result, Length(Result)-8+1, 8);
+        end;
+    end;
+
+    {
         Recursively outputs the given element into the given binary writer, for hashing purposes.
         The string isn't supposed to make much sense on it's own.
     }
@@ -1281,7 +1292,7 @@ unit PraUtil;
     begin
         curFormID := GetLoadOrderFormID(MasterOrSelf(form));
 
-        Result := IntToHex(curFormID, 8);
+        Result := FormIdToHex(curFormID);
     end;
 
     {
@@ -1314,7 +1325,7 @@ unit PraUtil;
 		theFilename := GetFileName(theFile);
 		theFormId := getLocalFormId(theFile, FormID(form));
 
-		Result := theFilename + ':'+IntToHex(theFormId, 8);
+		Result := theFilename + ':'+FormIdToHex(theFormId);
 	end;
 
 	{
@@ -1332,8 +1343,8 @@ unit PraUtil;
 		if(separatorPos <= 0) then begin
 			exit;
 		end;
-        
-        
+
+
         regex := TPerlRegEx.Create();
 
         try
@@ -1478,7 +1489,7 @@ unit PraUtil;
 
         newElem := ElementAssign(container, HighInteger, nil, False);
         formId := GetLoadOrderFormID(kw);
-        SetEditValue(newElem, IntToHex(formId, 8));
+        SetEditValue(newElem, FormIdToHex(formId));
     end;
 
     function hasKeywordByPath(e: IInterface; kw: variant; signature: String): boolean;
@@ -1492,7 +1503,7 @@ unit PraUtil;
         kwda := ElementByPath(e, signature);
 
         variantType := varType(kw);
-        if (variantType = 258) or (variantType = varString) then begin
+        if (variantType = varUString) or (variantType = varString) then begin
             kwEdid := kw;
         end else begin
             kwEdid := EditorID(kw);
@@ -1525,7 +1536,7 @@ unit PraUtil;
         kwda := ElementByPath(e, signature);
 
         variantType := varType(kw);
-        if (variantType = 258) or (variantType = varString) then begin
+        if (variantType = varUString) or (variantType = varString) then begin
             kwEdid := kw;
         end else begin
             kwEdid := EditorID(kw);
@@ -1552,7 +1563,7 @@ unit PraUtil;
         kwda := ElementByPath(e, signature);
 
         variantType := varType(av);
-        if (variantType = 258) or (variantType = varString) then begin
+        if (variantType = varUString) or (variantType = varString) then begin
             kwEdid := av;
         end else begin
             kwEdid := EditorID(av);
@@ -1714,7 +1725,7 @@ unit PraUtil;
             formIdList := Add(formList, 'FormIDs', True);
             // This automatically gives you one free entry pointing to NULL
             curElem := ElementByIndex(formIdList, i);
-            SetEditValue(curElem, IntToHex(GetLoadOrderFormID(newForm), 8));
+            SetEditValue(curElem, FormIdToHex(GetLoadOrderFormID(newForm)));
             exit;
         end;
 
@@ -1732,7 +1743,7 @@ unit PraUtil;
 
 
         curElem := ElementAssign(formIdList, HighInteger, nil, False);
-        SetEditValue(curElem, IntToHex(GetLoadOrderFormID(newForm), 8));
+        SetEditValue(curElem, FormIdToHex(GetLoadOrderFormID(newForm)));
 
     end;
 
@@ -1851,6 +1862,12 @@ unit PraUtil;
     end;
 
     // helper functions
+    function strContainsCI(haystack: String; needle: String): boolean;
+    begin
+        Result := pos(LowerCase(needle), LowerCase(haystack)) <> 0;
+    end;
+
+
     {
         Checks if string haystack starts with string needle
     }
@@ -2002,9 +2019,9 @@ unit PraUtil;
     procedure setLinksTo(e: IInterface; formToAdd: IInterface);
     begin
         if(assigned(formToAdd)) then begin
-            SetEditValue(e, IntToHex(GetLoadOrderFormID(formToAdd), 8));
+            SetEditValue(e, FormIdToHex(GetLoadOrderFormID(formToAdd)));
         end else begin
-            SetEditValue(e, IntToHex(0, 8));
+            SetEditValue(e, FormIdToHex(0));
         end;
     end;
 
@@ -2014,9 +2031,9 @@ unit PraUtil;
     procedure setPathLinksTo(e: IInterface; path: string; form: IInterface);
     begin
         if(assigned(form)) then begin
-            SetElementEditValues(e, path, IntToHex(GetLoadOrderFormID(form), 8));
+            SetElementEditValues(e, path, FormIdToHex(GetLoadOrderFormID(form)));
         end else begin
-            SetElementEditValues(e, path, IntToHex(0, 8));
+            SetElementEditValues(e, path, FormIdToHex(0));
         end;
     end;
 
@@ -2522,12 +2539,13 @@ unit PraUtil;
             varByte      : Result := 'varByte';
             varWord      : Result := 'varWord';
             varLongWord  : Result := 'varLongWord';
-            vart64       : Result := 'vart64';
+            //vart64       : Result := 'vart64'; // doesn't seem to exist
             varStrArg    : Result := 'varStrArg';
             varString    : Result := 'varString';
+            varUString     : Result := 'varUString ';
             varAny       : Result := 'varAny';
             varTypeMask  : Result := 'varTypeMask';
-            else:       Result := IntToStr(basicType);
+            else       Result := IntToStr(basicType);
         end;
     end;
 
@@ -2573,7 +2591,7 @@ unit PraUtil;
         end else if(variantType = varDouble) then begin
             SetElementEditValues(propElem, 'Type', 'Float');
             SetElementEditValues(propElem, 'Float', FloatToStr(value));
-        end else if(variantType = 258) or (variantType =varString) then begin
+        end else if(variantType = varUString ) or (variantType =varString) then begin
             SetElementEditValues(propElem, 'Type', 'String');
             SetElementEditValues(propElem, 'String', value);
         end else if(variantType = varBoolean) then begin
@@ -3101,24 +3119,84 @@ unit PraUtil;
         loopPreventer.free();
     end;
 
-    procedure addRequiredMastersSilent_Single(fromElement, toFile: IInterface);
+    {
+        Checks whenever fileToCheck or any of it's masters have masterToCheck as their master
+    }
+    function HasMasterFull(fileToCheck: IInterface; masterToCheck: string): boolean;
+    var
+        i, cntMinOne: integer;
+    begin
+        // first, directly
+        if(HasMaster(fileToCheck, masterToCheck)) then begin
+            Result := true;
+            exit;
+        end;
+
+        cntMinOne := MasterCount(fileToCheck)-1;
+
+        for i:=0 to cntMinOne do begin
+            if(HasMasterFull(MasterByIndex(fileToCheck, i), masterToCheck)) then begin
+                Result := true;
+                exit;
+            end;
+        end;
+
+        Result := false;
+    end;
+
+    {
+        Like AddMasterIfMissing, but will do nothing and return false if adding the master would cause a circular dependency.
+    }
+    function AddMasterIfMissing_Safe(toFile: IInterface; newMaster: string): boolean;
+    var
+        newMasterFile: IInterface;
+    begin
+        Result := false;
+        newMasterFile := findFile(newMaster);
+        if(not assigned(newMasterFile)) then begin
+            AddMessage('ERROR: cannot add '+newMaster+' as master to '+GetFileName(toFile)+', because '+newMaster+' doesn''t exist');
+            exit;
+        end;
+
+        // now, what do we do? newMasterFile must absolutely not have toFile as master
+        if(HasMasterFull(newMasterFile, GetFileName(toFile))) then begin
+            AddMessage('ERROR: cannot add '+newMaster+' as master to '+GetFileName(toFile)+', because that would cause a circular dependency!');
+            exit;
+        end;
+
+        AddMasterIfMissing(toFile, newMaster);
+        Result := true;
+    end;
+
+    {
+        Gets the file of fromElement, and adds it and all it's masters to toFile.
+        fromElement can be either an element or a file.
+    }
+    function addRequiredMastersSilent_Single(fromElement, toFile: IInterface): boolean;
     var
         masters: TStringList;
         i: integer;
         toFileName: string;
         fromElemFile: IInterface;
     begin
+        Result := true;
         toFileName := GetFileName(toFile);
         fromElemFile := GetFile(fromElement);
 
         if (not FilesEqual(fromElemFile, toFile)) then begin
-            AddMasterIfMissing(toFile, GetFileName(fromElemFile));
+            if(not AddMasterIfMissing_Safe(toFile, GetFileName(fromElemFile))) then begin
+                Result := false;
+            end;
         end;
 
         masters := ReportRequiredMastersFull(fromElement);
         for i:=0 to masters.count-1 do begin
             if(toFileName <> masters[i]) then begin
-                AddMasterIfMissing(toFile, masters[i]);
+                if(not AddMasterIfMissing_Safe(toFile, masters[i])) then begin
+                    Result := false;
+                    masters.free();
+                    exit;
+                end;
             end;
         end;
         masters.free();
@@ -3134,15 +3212,27 @@ unit PraUtil;
     begin
         if(not isMaster(fromElement)) then begin
             curMaster := Master(fromElement);
-            addRequiredMastersSilent_Single(curMaster, toFile);
+            if(not addRequiredMastersSilent_Single(curMaster, toFile)) then begin
+                raise Exception.Create('ERROR: Cannot add required masters for '+FullPath(fromElement)+' to '+GetFileName(toFile));
+                //AddMessage('ERROR: Cannot add required masters for '+DisplayName(fromElement)+' to '+GetFileName(toFile));
+                //exit;
+            end;
         end;
 
         injectedMaster := getInjectedRecordTarget(fromElement);
         if(assigned(injectedMaster)) then begin
-            addRequiredMastersSilent_Single(injectedMaster, toFile);
+            if(not addRequiredMastersSilent_Single(injectedMaster, toFile)) then begin
+                raise Exception.Create('ERROR: Cannot add required masters for '+FullPath(fromElement)+' to '+GetFileName(toFile));
+                //AddMessage('ERROR: Cannot add required masters for '+DisplayName(fromElement)+' to '+GetFileName(toFile));
+                //exit;
+            end;
         end;
 
-        addRequiredMastersSilent_Single(fromElement, toFile);
+        if(not addRequiredMastersSilent_Single(fromElement, toFile)) then begin
+            raise Exception.Create('ERROR: Cannot add required masters for '+FullPath(fromElement)+' to '+GetFileName(toFile));
+            //AddMessage('ERROR: Cannot add required masters for '+DisplayName(fromElement)+' to '+GetFileName(toFile));
+            //exit;
+        end;
     end;
 
     function getExistingElementOverride(sourceElem: IInterface; targetFile: IwbFile): IInterface;
@@ -4248,7 +4338,7 @@ unit PraUtil;
                 targetJson.L[key] := v;
             varDouble:
                 targetJson.F[key] := v;
-            varString, 258:
+            varString, varUString:
                 targetJson.S[key] := v;
             varBoolean:
                 targetJson.B[key] := v;
@@ -4887,6 +4977,38 @@ unit PraUtil;
 
         concatJsonArrays(arr, arrBackup);
         arrBackup.free();
+    end;
+
+    {
+        Removes the item from the array at the given index, and returns it
+    }
+    function removeFromArray(arr: TJsonArray; key: integer): variant;
+    var
+        curType: integer;
+    begin
+        curType := arr.Types[key];
+        case curType of
+            JSON_TYPE_STRING:
+                Result := arr.S[key];
+            JSON_TYPE_INT:
+                Result := arr.I[key];
+            JSON_TYPE_LONG:
+                Result := arr.L[key];
+            JSON_TYPE_ULONG:
+                Result := arr.U[key];
+            JSON_TYPE_FLOAT:
+                Result := arr.F[key];
+            JSON_TYPE_DATETIME:
+                Result := arr.D[key];
+            JSON_TYPE_BOOL:
+                Result := arr.B[key];
+            JSON_TYPE_ARRAY:
+                Result := cloneJsonArray(arr.A[key]);
+            JSON_TYPE_OBJECT:
+                Result := cloneJsonObject(arr.O[key]);
+        end;
+
+        arr.delete(key);
     end;
 
     procedure appendValueToArray(arr: TJsonArray; value: variant; valueType: integer);

@@ -78,4 +78,12 @@ scripts\source\user\lighthouse.psc
 scripts\lighthouse.pex
 scripts\source\user\sup_f4se.pex
 scripts\sup_f4se.pex
+scripts\source\user\sup_f4se.psc
+scripts\gardenofeden.pex
+scripts\gardenofeden2.pex
+scripts\gardenofeden3.pex
+scripts\source\user\gardenofeden.psc
+scripts\source\user\gardenofeden2.psc
+scripts\source\user\gardenofeden3.psc
+scripts\hardcore\
 

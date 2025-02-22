@@ -409,6 +409,11 @@ unit MakePartialForm;
         RemoveElement( e, 'XGDR' );
         RemoveElement( e, 'XPRI' );
         RemoveElement( e, 'XCRI' );
+        
+        {
+            CELL -> Record is Partial Form, but contains: Flags, Lighting Template
+            ... which can't actually be removed in xEdit, so ...
+        }
     end;
 
     procedure truncateWorldspace(e: IInterface);
