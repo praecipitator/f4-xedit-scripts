@@ -6,7 +6,7 @@
 unit PraUtil;
     const
         // the version constant
-        PRA_UTIL_VERSION = 16.0;
+        PRA_UTIL_VERSION = 16.1;
 
 
         // file flags
@@ -3210,6 +3210,10 @@ unit PraUtil;
     var
         curMaster, injectedMaster: IInterface;
     begin
+        if(not assigned(fromElement)) then begin
+            AddMessage('WARNING: addRequiredMastersSilent was called with a none fromElement');
+            exit;
+        end;
         if(not isMaster(fromElement)) then begin
             curMaster := Master(fromElement);
             if(not addRequiredMastersSilent_Single(curMaster, toFile)) then begin
