@@ -23,6 +23,10 @@ unit CollectAssets;
         existingResourceList: TStringList; // all resources in all currently loaded archives
         missingResourceList: TStringList; // missing ones go here
 
+        vanillaResources: TStringList; // these resources will never be included, if "no replacers" is enabled
+        vanillaResourcePrefixes: TStringList;
+
+
         // Config Stuff
         verboseMode: boolean;
         addSource: boolean;
@@ -33,6 +37,7 @@ unit CollectAssets;
         useXwm: boolean;
         parseScripts: boolean;
         useResourceBlacklist: boolean;
+        skipVanillaResources: boolean;
         addAnimFolder: boolean;
         addLod: boolean;
         processNifs: boolean;
@@ -65,6 +70,7 @@ unit CollectAssets;
         useXwm := true;
         parseScripts := true;
         useResourceBlacklist := true;
+        skipVanillaResources := true;
         addAnimFolder := true;
         processNifs := true;
         addLod := true;
@@ -113,6 +119,8 @@ unit CollectAssets;
                     parseScripts := StrToBool(curVal);
                 end else if(curKey = 'useResourceBlacklist') then begin
                     useResourceBlacklist := StrToBool(curVal);
+                end else if(curKey = 'skipVanillaResources') then begin
+                    skipVanillaResources := StrToBool(curVal);
                 end else if(curKey = 'addAnimFolder') then begin
                     addAnimFolder := StrToBool(curVal);
                 end else if(curKey = 'processNifs') then begin
@@ -151,6 +159,7 @@ unit CollectAssets;
         lines.add('useXwm='+BoolToStr(useXwm));
         lines.add('parseScripts='+BoolToStr(parseScripts));
         lines.add('useResourceBlacklist='+BoolToStr(useResourceBlacklist));
+        lines.add('skipVanillaResources='+BoolToStr(skipVanillaResources));
         lines.add('addAnimFolder='+BoolToStr(addAnimFolder));
         lines.add('processNifs='+BoolToStr(processNifs));
         lines.add('addLod='+BoolToStr(addLod));
@@ -184,6 +193,12 @@ unit CollectAssets;
     function normalizeResource(path: string; akResourceType: TGameResourceType): string;
     begin
         Result := wbNormalizeResourceName(normalizeSlashes(path), akResourceType);
+    end;
+
+    function isResourceVanilla(resName: string): boolean;
+    begin
+        // vanillaResources
+        Result := (vanillaResources.indexOf(resName) >= 0);
     end;
 
     function isResourceBlacklisted(resName: string): boolean;
@@ -247,11 +262,20 @@ unit CollectAssets;
             exit;
         end;
 
+        if (skipVanillaResources) then begin
+            if(isResourceVanilla(resName)) then begin
+                if(verboseMode) then begin
+                    AddMessage('Refusing to replace vanilla resource: '+resName);
+                end;
+                exit;
+            end;
+        end;
+
         if (useResourceBlacklist) then begin
-                if(isResourceBlacklisted(resName)) then begin
-                    if(verboseMode) then begin
-                        AddMessage('Resource blacklisted: '+resName);
-                    end;
+            if(isResourceBlacklisted(resName)) then begin
+                if(verboseMode) then begin
+                    AddMessage('Resource blacklisted: '+resName);
+                end;
                 exit;
             end;
         end;
@@ -1045,6 +1069,7 @@ unit CollectAssets;
         windowHeightBase: Integer;
         windowWidthBase: Integer;
         topOffset: Integer;
+        topOffsetProcessing: Integer;
 
         cbIncludeSource: TCheckBox;
         //cbIgnoreNamespaceless: TCheckBox;
@@ -1061,6 +1086,7 @@ unit CollectAssets;
         createLoose: TCheckBox;
         parseScriptsCb: TCheckBox;
         blacklistScriptsCb: TCheckBox;
+        skipVanillaCb: TCheckBox;
         compressMainBa2: TCheckBox;
         addAnimFolderCb: TCheckBox;
         processNifsCb: TCheckBox;
@@ -1072,6 +1098,7 @@ unit CollectAssets;
         showMissingAssetsCb: TCheckBox;
 
         resultCode: Integer;
+
     begin
         loadConfig();
         scriptNames := TStringList.create;
@@ -1090,7 +1117,7 @@ unit CollectAssets;
 
         Result := true;
 
-        windowHeightBase := 400;
+        windowHeightBase := 430;
         windowWidthBase := 360;
         topOffset := 0;
 
@@ -1120,33 +1147,42 @@ unit CollectAssets;
         end;
 
         topOffset := topOffset + 80;
-        processingGroup := CreateGroup(frm, 10, topOffset, 345, 190, 'Processing');
+        processingGroup := CreateGroup(frm, 10, topOffset, 345, 210, 'Processing');
 
-        cbIncludeSource         := CreateCheckbox(processingGroup, 10, 15,'Include Script Sources');
+
+        topOffsetProcessing := 15;
+
+        cbIncludeSource         := CreateCheckbox(processingGroup, 10, topOffsetProcessing,'Include Script Sources');
         if(addSource) then begin
             cbIncludeSource.state := cbChecked;
         end;
-        includeFaceMeshes       := CreateCheckbox(processingGroup, 10, 35,'Include Face Meshes');
+
+        topOffsetProcessing := topOffsetProcessing + 20;
+        includeFaceMeshes       := CreateCheckbox(processingGroup, 10, topOffsetProcessing, 'Include Face Meshes');
         if(addFacemesh) then begin
             includeFaceMeshes.state := cbChecked;
         end;
 
-        includeScol := CreateCheckbox(processingGroup, 10, 55, 'Include SCOL Meshes');
+        topOffsetProcessing := topOffsetProcessing + 20;
+        includeScol := CreateCheckbox(processingGroup, 10, topOffsetProcessing, 'Include SCOL Meshes');
         if(addScolMesh) then begin
             includeScol.state := cbChecked;
         end;
 
-        cbAutoXwm       := CreateCheckbox(processingGroup, 10, 75,'Use XWM sound files, if possible');
+        topOffsetProcessing := topOffsetProcessing + 20;
+        cbAutoXwm       := CreateCheckbox(processingGroup, 10, topOffsetProcessing, 'Use XWM sound files, if possible');
         if(useXwm) then begin
             cbAutoXwm.State := useXwm;
         end;
 
-        parseScriptsCb       := CreateCheckbox(processingGroup, 10, 95,'Parse Scripts and include extended scripts');
+        topOffsetProcessing := topOffsetProcessing + 20;
+        parseScriptsCb       := CreateCheckbox(processingGroup, 10, topOffsetProcessing, 'Parse Scripts and include extended scripts');
         if(parseScripts) then begin
             parseScriptsCb.State := cbChecked;
         end;
 
-        blacklistScriptsCb       := CreateCheckbox(processingGroup, 10, 115,'Use Blacklist');
+        topOffsetProcessing := topOffsetProcessing + 20;
+        blacklistScriptsCb       := CreateCheckbox(processingGroup, 10, topOffsetProcessing, 'Use Blacklist');
 
         if (resourceBlackList <> nil) then begin
             if(useResourceBlacklist) then begin
@@ -1156,24 +1192,34 @@ unit CollectAssets;
             blacklistScriptsCb.Enabled := false;
         end;
 
-        addAnimFolderCb := CreateCheckbox(processingGroup, 10, 135, 'Include Meshes\AnimTextData, if it exists');
+        topOffsetProcessing := topOffsetProcessing + 20;
+        skipVanillaCb := CreateCheckbox(processingGroup, 10, topOffsetProcessing, 'Never include vanilla assets');
+        if(skipVanillaResources) then begin
+            skipVanillaCb.State := cbChecked;
+        end;
+
+
+        topOffsetProcessing := topOffsetProcessing + 20;
+        addAnimFolderCb := CreateCheckbox(processingGroup, 10, topOffsetProcessing, 'Include Meshes\AnimTextData, if it exists');
         if(addAnimFolder) then begin
             addAnimFolderCb.State := cbChecked;
         end;
 
-        addLodCb := CreateCheckbox(processingGroup, 10, 155, 'Include worldspace LOD data');
+        topOffsetProcessing := topOffsetProcessing + 20;
+        addLodCb := CreateCheckbox(processingGroup, 10, topOffsetProcessing, 'Include worldspace LOD data');
         if(addLod) then begin
             addLodCb.State := cbChecked;
         end;
 
-        processNifsCb := CreateCheckbox(processingGroup, 10, 175, 'Parse NIFs for materials/textures');
+        topOffsetProcessing := topOffsetProcessing + 20;
+        processNifsCb := CreateCheckbox(processingGroup, 10, topOffsetProcessing, 'Parse NIFs for materials/textures');
         if(processNifs) then begin
             processNifsCb.State := cbChecked;
         end;
         //processNifs
 
 
-        topOffset := topOffset + 200;
+        topOffset := topOffset + 230;
 
         outputGroup := CreateGroup(frm, 10, topOffset, 345, 90, 'Output');
 
@@ -1213,6 +1259,9 @@ unit CollectAssets;
         end else begin
             useResourceBlacklist := false;
         end;
+
+        skipVanillaResources := (skipVanillaCb.State = cbChecked);
+
         createLooseFolder := (createLoose.state = cbChecked);
         parseScripts := (parseScriptsCb.state = cbChecked);
 
@@ -1308,9 +1357,9 @@ unit CollectAssets;
             ShellExecuteWait(TForm(frmMain).Handle, 'open', 'cmd', '/C mkdir "'+path+'"', '', SW_HIDE);
             Result := DirectoryExists(path);
         end;
-        
+
         exit;
-    
+
         Result := true;
         start := 1;
         curSubpath := '';
@@ -1653,6 +1702,55 @@ unit CollectAssets;
 
     ///////////////// OUTPUT END //////////////////
 
+    function isContainerVanilla(container: string): boolean;
+    var
+        i: integer;
+        curPrefix: string;
+    begin
+        // container is a FULL ABSOLUTE PATH
+        // F:\SteamSSD\steamapps\common\Fallout 4\Data\Fallout4 - Textures1.ba2
+        container := LowerCase(ExtractFileName(container));
+        // starts with: "DLCCoast - ", "Fallout4 - ", "DLCworkshop03 - ", "DLCworkshop02 - ", "DLCworkshop01 - ", "DLCRobot - ", "DLCNukaWorld - ", "CreationKit - "
+        // pattern: "ccbgsfo4[0-9]{3}-(text) - "... just fucking use ccbgsfo4
+        for i:=0 to vanillaResourcePrefixes.count-1 do begin
+            curPrefix := LowerCase(vanillaResourcePrefixes[i]);
+            if(strStartsWith(container, curPrefix)) then begin
+                Result := true;
+                exit;
+            end;
+        end;
+        Result := false;
+    end;
+
+    procedure FillVanillaResourceList();
+    var
+        containers: TStringList;
+        containerContent: TStringList;
+        i, j: integer;
+        curContainer: string;
+    begin
+
+        if(verboseMode) then begin
+            AddMessage('Building list of vanilla assets');
+        end;
+        containers := TStringList.create;
+        ResourceContainerList(containers);
+
+        for i:=0 to containers.count-1 do begin
+            // now check if this is vanilla
+            curContainer := containers[i];
+            // AddMessage('Checking container '+curContainer);
+            if(isContainerVanilla(curContainer)) then begin
+                // AddMessage('Adding from container '+curContainer);
+                ResourceList(curContainer, vanillaResources);
+            end;
+
+        end;
+        containers.free();
+        if(verboseMode) then begin
+            AddMessage('List of vanilla assets built. Found '+IntToStr(vanillaResources.count)+' resources.');
+        end;
+    end;
 
     procedure FillExistingResourceList();
     var
@@ -1707,6 +1805,9 @@ unit CollectAssets;
             AddMessage('Blacklist file not found. Blacklisting will not be available');
         end;
 
+
+
+
         if(not showConfigGui()) then begin
             Result := 1;
         end;
@@ -1720,10 +1821,32 @@ unit CollectAssets;
             existingResourceList.CaseSensitive := false;
             existingResourceList.Duplicates := dupIgnore;
             FillExistingResourceList();
-            // debugDumpList();
         end else begin
             existingResourceList := nil;
             missingResourceList := nil;
+        end;
+
+        if(skipVanillaResources) then begin
+            vanillaResourcePrefixes := TStringList.create;
+            // starts with: "DLCCoast - ", "Fallout4 - ", "DLCworkshop03 - ", "DLCworkshop02 - ", "DLCworkshop01 - ", "DLCRobot - ", "DLCNukaWorld - ", "CreationKit - "
+            // pattern: "ccbgsfo4[0-9]{3}-(text) - "... just fucking use ccbgsfo4
+            vanillaResourcePrefixes.add('Fallout4 - ');
+            vanillaResourcePrefixes.add('DLCworkshop01 - ');
+            vanillaResourcePrefixes.add('DLCworkshop02 - ');
+            vanillaResourcePrefixes.add('DLCworkshop03 - ');
+            vanillaResourcePrefixes.add('DLCRobot - ');
+            vanillaResourcePrefixes.add('DLCNukaWorld - ');
+            vanillaResourcePrefixes.add('CreationKit - ');
+            vanillaResourcePrefixes.add('DLCCoast - ');
+            vanillaResourcePrefixes.add('ccbgsfo4');
+
+            vanillaResources := TStringList.create;
+            vanillaResources.CaseSensitive := false;
+            vanillaResources.Duplicates := dupIgnore;
+            FillVanillaResourceList();
+        end else begin
+            vanillaResources := nil;
+            vanillaResourcePrefixes := nil;
         end;
 
         // prepare dirs
@@ -1735,6 +1858,7 @@ unit CollectAssets;
 
         hasTextureOutput := false;
         hasMainOutput := false;
+
         AddMessage('Begin processing');
     end;
 
@@ -2148,6 +2272,15 @@ unit CollectAssets;
 
     procedure cleanUp();
     begin
+        if(vanillaResourcePrefixes <> nil) then begin
+            vanillaResourcePrefixes.free();
+        end;
+
+        if(vanillaResources <> nil) then begin
+            vanillaResources.free();
+            vanillaResources := nil;
+        end;
+
         if(existingResourceList <> nil) then begin
             existingResourceList.free();
             existingResourceList := nil;

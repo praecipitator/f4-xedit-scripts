@@ -8,6 +8,9 @@
     If you want navmesh processing to work, you must disable the xEdit setting "Simple records LAND, NAVI, NAVM, CELL, WRLD".
     It's found in the ≡ menu in the top left of xEdit. Or press Ctrl+O.
 
+    If you let the script process navmeshes, you must refinalize the navmeshes in the affected cells in the CreationKit afterwards.
+    A list of cells will be output at the end.
+
     Required Scripts:
         - praUtil.pas
         - CobbLibrary.pas
@@ -19,7 +22,6 @@
                             with one triange with the edge length of 10.
         - Set Z Coordinate:
                             You can make the script set the Z coordinate to -30000, subtract -30000, or do nothing.
-                            This doesn't affect navmeshes.
         - Reapply to Undeleted:
                             The script will process references and navmeshes which have been undeleted already.
                             Useful if you want to move undeleted refs onto a layer or into a cell,
@@ -49,6 +51,7 @@ unit UndeleteStuff;
         settingZCoordMode: integer; // 0 => nothing, 1 => set to -30k, 2 => subtract -30k
         settingTargetLayerName, settingTargetCellEdid: string;
         targetLayer, targetCell: IInterface;
+        cellsToRefinalize: TStringList;
 
     procedure loadConfig();
     var
@@ -57,16 +60,21 @@ unit UndeleteStuff;
         lines : TStringList;
     begin
         // default
+        // navmesh settings
         settingProcessNavmeshes := true;
+
+        // ref settings
         settingMoveToLayer := false;
         settingMoveToCell := false;
-        settingReapply := false;
-        settingDisabledIsEnough := false;
 
+        settingTargetCellEdid := '';
         settingDummyPrecomb := false;
         settingZCoordMode := 1;
         settingTargetLayerName := 'deleted';
-        settingTargetCellEdid := '';
+
+        // other settings
+        settingReapply := false;
+        settingDisabledIsEnough := false;
 
 
         if(not FileExists(configFile)) then begin
@@ -178,8 +186,8 @@ unit UndeleteStuff;
         cbMoveToLayer.checked := settingMoveToLayer;
 
         CreateLabel(frm, 10, yOffset + 23, 'Layer:');
-        editLayer := CreateInput(frm, 60, yOffset + 20, settingTargetLayerName);
-        editLayer.width := 250;
+        editLayer := CreateInput(frm, 66, yOffset + 20, settingTargetLayerName);
+        editLayer.width := 244;
 
         yOffset := yOffset + 60;
 
@@ -190,8 +198,8 @@ unit UndeleteStuff;
         cbDummyPrecomb.checked := settingDummyPrecomb;
 
         CreateLabel(frm, 10, yOffset + 23, 'Cell EDID:');
-        editCell := CreateInput(frm, 60, yOffset + 20, settingTargetCellEdid);
-        editCell.width := 250;
+        editCell := CreateInput(frm, 66, yOffset + 20, settingTargetCellEdid);
+        editCell.width := 244;
 
         yOffset := yOffset + 50;
 
@@ -297,6 +305,27 @@ unit UndeleteStuff;
         Result := foundLayer;
     end;
 
+    procedure registerNavmesh(navm: IInterface);
+    var
+        parentCell: IInterface;
+        stringKey: string;
+    begin
+        parentCell := MasterOrSelf(pathLinksTo(navm, 'Cell'));
+        stringKey := FormToAbsStr(parentCell);
+
+
+        if(cellsToRefinalize.indexOf(stringKey) >= 0) then begin
+            exit;
+        end;
+
+        // stringKey := EditorID(parentCell)+' "'+DisplayName(parentCell)+'" [CELL:'+IntToHex(FormID(parentCell), 8)+']';
+        cellsToRefinalize.addObject(stringKey, parentCell);
+
+        // AddMessage(stringKey);
+        // cellsToRefinalize
+    end;
+
+
     procedure processNavm(navm: IInterface);
     var
         i, numVertices: integer;
@@ -310,6 +339,8 @@ unit UndeleteStuff;
             AddMessage('Skipping deleted navmesh: ' + Name(navm));
             exit;
         end;
+
+        registerNavmesh(navm);
 
         AddMessage('Undeleting: ' + Name(navm));
         // leave as-is:
@@ -339,7 +370,6 @@ unit UndeleteStuff;
         numVertices := ElementCount(vertices);
         for i := 0 to numVertices - 1 do begin
             curV := ElementByIndex(vertices, i);
-
             meanX := meanX + GetElementNativeValues(curV, 'X');
             meanY := meanY + GetElementNativeValues(curV, 'Y');
             meanZ := meanZ + GetElementNativeValues(curV, 'Z');
@@ -348,6 +378,15 @@ unit UndeleteStuff;
         meanX := meanX / numVertices;
         meanY := meanY / numVertices;
         meanZ := meanZ / numVertices;
+
+        // 0 -> leave it as-is
+        if (settingZCoordMode = 1) then begin
+            // 1 -> set to -30k
+            meanZ := -30000;
+        end else if(settingZCoordMode = 2) then begin
+            // 2 -> subtract -30k
+            meanZ := meanZ - 30000;
+        end;
 
         // point1
 
@@ -442,6 +481,8 @@ unit UndeleteStuff;
             Result := 1;
             exit;
         end;
+
+        cellsToRefinalize := TStringList.create();
     end;
 
     function isNavmeshPseudoDeleted(navm: IInterface): boolean;
@@ -795,6 +836,7 @@ unit UndeleteStuff;
         AddMessage('Undeleting: ' + Name(e));
 
         // undelete
+        // can't remember why setting it to true first, but I think there was a reason for it
         SetIsDeleted(e, True);
         SetIsDeleted(e, False);
 
@@ -807,8 +849,33 @@ unit UndeleteStuff;
     end;
 
     function Finalize: integer;
+    var
+        i: integer;
+        curCell: IInterface;
+        cellText: string;
     begin
         AddMessage('Undeleted Records: ' + IntToStr(UndeletedCount));
+
+        if(cellsToRefinalize.count > 0) then begin
+            AddMessage('=== IMPORTANT ===');
+            AddMessage('Navmeshes have been updated.');
+
+            AddMessage('Navmeshes must be finalized in the following cells.');
+            AddMessage('-----------------');
+            for i:=0 to cellsToRefinalize.count-1 do begin
+                curCell := ObjectToElement(cellsToRefinalize.Objects[i]);
+                cellText := ' - ['+IntToHex(FormID(curCell), 8) +'] ' + EditorID(curCell)+' "'+DisplayName(curCell)+'"';
+
+                AddMessage(cellText);
+            end;
+            if(settingZCoordMode = 0) then begin
+                AddMessage('-----------------');
+                AddMessage('Also, since "Set Z Coordinate" was set to "Do Not Change", make sure to check if the autogenerated tiny navmesh triangles aren''t placed within other navmeshes.');
+            end;
+            AddMessage('=================');
+
+        end;
+        cellsToRefinalize.free();
     end;
 
 end.
