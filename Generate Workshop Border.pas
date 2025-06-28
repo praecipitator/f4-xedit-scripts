@@ -1,5 +1,5 @@
 {
-    Workshop Border Generation Script v2.0
+    Workshop Border Generation Script v2.1
 
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     !!! =========================================== IMPORTANT ============================================ !!!
@@ -23,6 +23,7 @@
         At each step, it tries to find the terrain's height, and places a new point. Out of these points, the border mesh is generated.
         
     Changelog:
+        2.1:    - Attempted to fix the issue where the script would malfunction if one corner of a box was located right on the edge of another.
         2.0:    - Fixed several issues with complex settlements made out of multiple build areas which don't all overlap with each other.
                 - The script now supports disjunct build areas, that is, when build areas don't overlap with each other at all.
 
@@ -322,7 +323,11 @@ unit WorkshopBorder;
             xIndex := IntToStr(x);
             for y:=0 to 32 do begin
                 yIndex := IntToStr(y);
-                curHeight := (cellData.O[xIndex].F[yIndex] - minHeight) / (maxHeight - minHeight) * 255;
+                if ((maxHeight - minHeight) = 0) then begin
+                    curHeight := minHeight;
+                end else begin
+                    curHeight := (cellData.O[xIndex].F[yIndex] - minHeight) / (maxHeight - minHeight) * 255.0;
+                end;
                 colorTest := IntToHex(curHeight, 2);
                 outLines.Add('<rect x="'+IntToStr(x * rectSize)+'" y="'+IntToStr(height - y * rectSize)+'" width="'+IntToStr(rectSize)+'" height="'+IntToStr(rectSize)+'" fill="#'+colorTest+colorTest+colorTest+'" />');
             end;
@@ -1924,6 +1929,9 @@ unit WorkshopBorder;
 
         temp1 := ( (x4-x3)*(y2-y1) - (y4-y3)*(x2-x1) );
         if floatEquals(temp1, 0) then begin
+            if(debugMode) then begin
+                AddMessage('Doing the intersect parallel edges hack');
+            end;
             // in this case, we seem to have the same incline and be overlapping
             Result := intersectParallelEdges(edge1, edge2);
             //AddMessage('Bork intersect: Edge1='+edge1.toString()+', Edge2='+edge2.toString()+', point='+Result.toString());
@@ -2221,6 +2229,7 @@ unit WorkshopBorder;
     end;
 
     // run this twice, with different order of arguments, to generate two halves, then merge
+    // this merges poly2 into poly1
     procedure mergePolygonsHalf(poly1, poly2, outPoly: TJsonObject);
     var
         i: integer;
@@ -2304,25 +2313,42 @@ unit WorkshopBorder;
                             appendEdge(edgesArray, curEdge.O['a'], isPoint1);
                         end else begin
                             {
-                            // this can mean that the intersect point lies right on the edge, but what does THAT mean?
-                            if(arePointsEqual(curEdge.O['a'], intersectPoints.O[0])) then begin
-                                // add the edge as is
-                                AddMessage(' A--B');
-                                appendEdge(edgesArray, curEdge.O['a'], curEdge.O['b']);
-                            end else if(arePointsEqual(curEdge.O['b'], intersectPoints.O[0])) then begin
-                                // add the edge as is
-                                AddMessage(' A--B');
-                                appendEdge(edgesArray, curEdge.O['a'], curEdge.O['b']);
-                            end else begin
-                                AddMessage('ANOMALY: one intersect, but pointAin='+BoolToStr(pointAin)+' pointBin='+BoolToStr(pointBin)+'. Skipping');
-                                AddMessage('Point A: '+curEdge.O['a'].toString());
-                                AddMessage('Point B: '+curEdge.O['b'].toString());
-                                AddMessage('Intersect: '+intersectPoints.O[0].toString());
-                            end;
+                            new stuff:
+                            - if both points are outside, the sole intersection must lie right on the edge. 
+                                I think this means, we should just add the entire edge.
                             }
-                            AddMessage('ANOMALY: one intersect, but pointAin='+BoolToStr(pointAin)+' pointBin='+BoolToStr(pointBin));
-                            AddMessage('This probably means that your build areas are aligned too much, you can try rotating, extending, or moving one of them by a little bit.');
-                            haveAnomalies := true;
+                            if((not pointAin) and (not pointBin)) then begin
+                                if(debugMode) then begin
+                                    AddMessage(' A--B');
+                                end;
+                                appendEdge(edgesArray, curEdge.O['a'], curEdge.O['b']);
+                            end else if (pointAin and pointBin) then begin
+                                if(debugMode) then begin
+                                    AddMessage(' ...nothing?');
+                                end;
+                                AddMessage(' MAYBE an anomaly? We seem to have one intersection, but both segment ends seem to be inside the polygon. This should mean, it'' safe to leave the segment out entirely, but if you see this message and your border turns out weirdly, please report this to Pra.');
+                            end else begin
+                                {
+                                // this can mean that the intersect point lies right on the edge, but what does THAT mean?
+                                if(arePointsEqual(curEdge.O['a'], intersectPoints.O[0])) then begin
+                                    // add the edge as is
+                                    AddMessage(' A--B');
+                                    appendEdge(edgesArray, curEdge.O['a'], curEdge.O['b']);
+                                end else if(arePointsEqual(curEdge.O['b'], intersectPoints.O[0])) then begin
+                                    // add the edge as is
+                                    AddMessage(' A--B');
+                                    appendEdge(edgesArray, curEdge.O['a'], curEdge.O['b']);
+                                end else begin
+                                    AddMessage('ANOMALY: one intersect, but pointAin='+BoolToStr(pointAin)+' pointBin='+BoolToStr(pointBin)+'. Skipping');
+                                    AddMessage('Point A: '+curEdge.O['a'].toString());
+                                    AddMessage('Point B: '+curEdge.O['b'].toString());
+                                    AddMessage('Intersect: '+intersectPoints.O[0].toString());
+                                end;
+                                }
+                                AddMessage('ANOMALY: one intersect, but pointAin='+BoolToStr(pointAin)+' pointBin='+BoolToStr(pointBin));
+                                AddMessage('This probably means that your build areas are aligned too much, you can try rotating, extending, or moving one of them by a little bit.');
+                                haveAnomalies := true;
+                            end;
                         end;
                     end;
                 else begin
