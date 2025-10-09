@@ -565,18 +565,15 @@ unit CollectAssets;
         Result := getModelNameByPath(e, 'Model\MODL');
     end;
 
-    function getMaterialSwap(e: IInterface): IInterface;
+    function getMaterialSwapByPath(e: IInterface; path: string): IInterface; // can modify
     var
         tempElem: IInterface;
     begin
         Result := nil;
-        tempElem := ElementByName(e, 'Model');
+
+        tempElem := ElementByPath(e, path);
         if(assigned(tempElem)) then begin
-            // ALSO MATERIAL SWAP
-            tempElem := ElementBySignature(tempElem, 'MODS');
-            if(assigned(tempElem)) then begin
-                Result := LinksTo(tempElem);
-            end;
+            Result := LinksTo(tempElem);
         end;
     end;
 
@@ -737,21 +734,30 @@ unit CollectAssets;
         end;
     end;
 
+    procedure processModelByPaths(e: IInterface; modelPath, matswapPath: string);
+    var
+        modelName: string;
+        matSwap: IInterface;
+    begin
+
+        modelName := getModelNameByPath(e, modelPath);
+        if(modelName <> '') then begin
+            processModel(modelName);
+            matSwap := getMaterialSwapByPath(e, matswapPath);
+
+            if(assigned(matSwap)) then begin
+                processMatSwap(matSwap);
+            end;
+        end;
+    end;
+
     procedure processModelByPath(e: IInterface; path: string);
     var
         modelName: string;
         matSwap: IInterface;
     begin
 
-        modelName := getModelNameByPath(e, path);
-        if(modelName <> '') then begin
-            processModel(modelName);
-            matSwap := getMaterialSwap(e);
-
-            if(assigned(matSwap)) then begin
-                processMatSwap(matSwap);
-            end;
-        end;
+        processModelByPaths(e, path, 'Model\MODS');
     end;
 
     procedure processModels(e: IInterface);
@@ -774,6 +780,27 @@ unit CollectAssets;
 
         processModelByPath(e, 'Male 1st Person\MOD4');
         processModelByPath(e, 'Female 1st Person\MOD5');
+
+    end;
+
+    procedure processDestructionStates(e: IInterface);
+    var
+        destructionStages: IInterface;
+        i: integer;
+        curStage: IInterface;
+    begin
+        // no clue which records can have these, but whatever
+        destructionStages := elementByPath(e, 'Destructible\Stages');
+        if (not assigned(destructionStages)) then begin
+            exit;
+        end;
+
+        for i:=0 to ElementCount(destructionStages)-1 do begin
+            curStage := ElementByIndex(destructionStages, i);
+
+
+            processModelByPaths(curStage, 'Model\DMDL', 'Model\DMDS');
+        end;
 
     end;
 
@@ -2053,6 +2080,7 @@ unit CollectAssets;
 
         processScripts(e);
         processModels(e);
+        processDestructionStates(e);
         processSounds(e);
 
         elemSig := Signature(e);
