@@ -6,7 +6,7 @@
 unit PraUtil;
     const
         // the version constant
-        PRA_UTIL_VERSION = 16.1;
+        PRA_UTIL_VERSION = 16.4;
 
 
         // file flags
@@ -262,6 +262,32 @@ unit PraUtil;
     function geevt(e: IInterface; name: string): string;
     begin
         Result := trim(GetElementEditValues(e, name));
+    end;
+
+    {
+        Like getElementEditValues, but with a default value when the path is missing
+    }
+    function getElementEditValuesDefault(e: IInterface; path: string; default: string): string;
+    begin
+        Result := getElementEditValues(e, path);
+        if(Result = '') then begin
+            Result := default;
+        end;
+    end;
+
+    {
+        Like getElementNativeValues, but with a default value when the path is missing
+    }
+    function getElementNativeValuesDefault(e: IInterface; path: string; default: variant): variant;
+    var
+        testVal: string;
+    begin
+        testVal := getElementEditValues(e, path);
+        if(testVal <> '') then begin
+            Result := getElementNativeValues(e, path);
+        end else begin
+            Result := default;
+        end;
     end;
 
     {
@@ -2703,6 +2729,7 @@ unit PraUtil;
         if(typeStr = '') then begin
             // assume it's an array
             clearArrayProperty(prop);
+            exit;
         end;
 
         // "If it's stupid, but works, ..."
@@ -3360,7 +3387,15 @@ unit PraUtil;
         Result := wbCopyElementToFile(sourceElem, targetFile, False, True);
     end;
 
-    //GUI function
+    //GUI functions
+    {
+        get UI scale, for dialog size scaling. Returns percentage in Int
+    }
+    function getUIScale(): integer;
+    begin
+        Result := Screen.PixelsPerInch * 100 / 96;
+    end;
+
     {
         This should escape characters which have special meaning when used in a UI
     }
@@ -3389,6 +3424,12 @@ unit PraUtil;
         end;
 	end;
 
+    procedure DialogOnShow(sender: TObject);
+    begin
+        sender.ScaleBy(getUIScale(), 100);
+        sender.Font.Size := 8;
+    end;
+
     function CreateDialog(caption: String; width, height: Integer): TForm;
     var
         frm: TForm;
@@ -3399,6 +3440,9 @@ unit PraUtil;
         frm.Width := width;
         frm.Position := poScreenCenter;
         frm.Caption := escapeString(caption);
+
+
+        frm.onShow := DialogOnShow;
 
         Result := frm;
     end;

@@ -57,6 +57,13 @@ unit CollectAssets;
         shouldCompressMainBa2: boolean;
 
 
+    procedure AddVerboseMsg(str: string);
+    begin
+        if(verboseMode) then begin
+            AddMessage(str);
+        end;
+    end;
+
     procedure loadConfig();
     var
         i, j, breakPos: integer;
@@ -197,7 +204,6 @@ unit CollectAssets;
 
     function isResourceVanilla(resName: string): boolean;
     begin
-        // vanillaResources
         Result := (vanillaResources.indexOf(resName) >= 0);
     end;
 
@@ -241,48 +247,48 @@ unit CollectAssets;
 
         resName := normalizeSlashes(resName);
 
-        if(verboseMode) then begin
-            AddMessage('Checking: '+resName);
-        end;
+
+        AddVerboseMsg('Checking: '+resName);
+
 
         checkMissingResource(resName);
 
         if (not fileExists(DataPath+resName)) then begin
-            if(verboseMode) then begin
-                AddMessage('Not a loose file: '+resName);
-            end;
+
+            AddVerboseMsg('Not a loose file: '+resName);
+
             Result := false;
             exit;
         end;
         if (resourceNames.indexOf(resName) >= 0) then begin
-            if(verboseMode) then begin
-                AddMessage('Already added: '+resName);
-            end;
+
+            AddVerboseMsg('Already added: '+resName);
+
             Result := false;
             exit;
         end;
 
         if (skipVanillaResources) then begin
             if(isResourceVanilla(resName)) then begin
-                if(verboseMode) then begin
-                    AddMessage('Refusing to replace vanilla resource: '+resName);
-                end;
+
+                AddVerboseMsg('Refusing to replace vanilla resource: '+resName);
+
                 exit;
             end;
         end;
 
         if (useResourceBlacklist) then begin
             if(isResourceBlacklisted(resName)) then begin
-                if(verboseMode) then begin
-                    AddMessage('Resource blacklisted: '+resName);
-                end;
+
+                AddVerboseMsg('Resource blacklisted: '+resName);
+
                 exit;
             end;
         end;
 
-        if(verboseMode) then begin
-            AddMessage('Found resource '+resName);
-        end;
+
+        AddVerboseMsg('Found resource '+resName);
+
         resourceNames.add(resName);
         Result := true;
     end;
@@ -357,9 +363,9 @@ unit CollectAssets;
         outList: TStringList;
         scriptName: string;
     begin
-        if(verboseMode) then begin
-            AddMessage('Decompiling '+pexPath);
-        end;
+
+        AddVerboseMsg('Decompiling '+pexPath);
+
         pexData := readPexResource(pexPath);
         if(pexData <> nil) then begin
             outList := getUsedScripts(pexData);
@@ -371,9 +377,9 @@ unit CollectAssets;
             outList.free();
             pexData.free();
         end else begin
-            if(verboseMode) then begin
-                AddMessage('  Failed to decompile!');
-            end;
+
+            AddVerboseMsg('  Failed to decompile!');
+
         end;
     end;
 
@@ -510,16 +516,20 @@ unit CollectAssets;
         i: integer;
         el: TdfElement;
     begin
+        AddVerboseMsg('Testing material '+materialName);
         if(materialName = '') then begin
+            AddVerboseMsg('No Material');
             exit;
         end;
 
         if(matNames.indexOf(materialName) >= 0)  then begin
+            AddVerboseMsg('have already');
             exit;
         end;
 
         checkMissingResource(materialName);
         if(not FileExists(DataPath+materialName)) then begin
+            AddVerboseMsg('not a loose file');
             exit;
         end;
 
@@ -609,7 +619,7 @@ unit CollectAssets;
         // mostly stolen from kinggath...
 
         try
-            nif.LoadFromResource(nifPath);
+            nif.LoadFromResource(nifPath); // 59MB is too much, 34 works
 
             for i := 0 to Pred(Nif.BlocksCount) do begin
                 Block := Nif.Blocks[i];
@@ -843,6 +853,49 @@ unit CollectAssets;
         processResource(meshName);
     end;
 
+    procedure processImgs(e: IInterface);
+    var
+        lut: string;
+    begin
+        lut := GetElementEditValues(e, 'TX00');
+
+        //AddMessage('wat'+lut);
+        processTexture(lut);
+    end;
+
+    procedure processSpgd(e: IInterface);
+    var
+        mnam: string;
+    begin
+        mnam := GetElementEditValues(e, 'MNAM');
+        // AddMessage('watmat '+mnam);
+        if(mnam <> '') then begin
+            processMaterial('Materials\'+mnam);
+        end;
+
+    end;
+
+
+    procedure processWeather(e: IInterface);
+    begin
+        processTexture(GetElementEditValues(e, '00TX'));
+        processTexture(GetElementEditValues(e, '10TX'));
+        processTexture(GetElementEditValues(e, '20TX'));
+        processTexture(GetElementEditValues(e, '30TX'));
+        processTexture(GetElementEditValues(e, '40TX'));
+        processTexture(GetElementEditValues(e, '50TX'));
+        processTexture(GetElementEditValues(e, '60TX'));
+        processTexture(GetElementEditValues(e, '70TX'));
+        processTexture(GetElementEditValues(e, '80TX'));
+        processTexture(GetElementEditValues(e, '90TX'));
+        processTexture(GetElementEditValues(e, ':0TX'));
+        processTexture(GetElementEditValues(e, ';0TX'));
+        processTexture(GetElementEditValues(e, '<0TX'));
+        processTexture(GetElementEditValues(e, '=0TX'));
+        processTexture(GetElementEditValues(e, '>0TX'));
+        processTexture(GetElementEditValues(e, '?0TX'));
+
+    end;
 
     procedure processPrecombines(e: IInterface);
     var
@@ -1734,6 +1787,7 @@ unit CollectAssets;
         i: integer;
         curPrefix: string;
     begin
+        AddVerboseMsg('Is Container Vanilla? '+container);
         // container is a FULL ABSOLUTE PATH
         // F:\SteamSSD\steamapps\common\Fallout 4\Data\Fallout4 - Textures1.ba2
         container := LowerCase(ExtractFileName(container));
@@ -1742,10 +1796,12 @@ unit CollectAssets;
         for i:=0 to vanillaResourcePrefixes.count-1 do begin
             curPrefix := LowerCase(vanillaResourcePrefixes[i]);
             if(strStartsWith(container, curPrefix)) then begin
+                AddVerboseMsg(' -> yes');
                 Result := true;
                 exit;
             end;
         end;
+        AddVerboseMsg(' -> no');
         Result := false;
     end;
 
@@ -1757,26 +1813,26 @@ unit CollectAssets;
         curContainer: string;
     begin
 
-        if(verboseMode) then begin
-            AddMessage('Building list of vanilla assets');
-        end;
+
+        AddVerboseMsg('Building list of vanilla assets');
+
         containers := TStringList.create;
         ResourceContainerList(containers);
 
         for i:=0 to containers.count-1 do begin
             // now check if this is vanilla
             curContainer := containers[i];
-            // AddMessage('Checking container '+curContainer);
+
             if(isContainerVanilla(curContainer)) then begin
-                // AddMessage('Adding from container '+curContainer);
+
                 ResourceList(curContainer, vanillaResources);
             end;
 
         end;
         containers.free();
-        if(verboseMode) then begin
-            AddMessage('List of vanilla assets built. Found '+IntToStr(vanillaResources.count)+' resources.');
-        end;
+
+        AddVerboseMsg('List of vanilla assets built. Found '+IntToStr(vanillaResources.count)+' resources.');
+
     end;
 
     procedure FillExistingResourceList();
@@ -1786,9 +1842,9 @@ unit CollectAssets;
         i, j: integer;
         curContainer: string;
     begin
-        if(verboseMode) then begin
-            AddMessage('Building list of existing assets');
-        end;
+
+        AddVerboseMsg('Building list of existing assets');
+
         containers := TStringList.create;
         ResourceContainerList(containers);
         for i:=0 to containers.count-1 do begin
@@ -1804,9 +1860,9 @@ unit CollectAssets;
             }
         end;
         containers.free();
-        if(verboseMode) then begin
-            AddMessage('List of existing assets built.');
-        end;
+
+        AddVerboseMsg('List of existing assets built.');
+
     end;
 
     // Called before processing
@@ -2091,6 +2147,21 @@ unit CollectAssets;
             exit;
         end;
 
+        if(elemSig = 'WTHR') then begin
+            processWeather(e);
+            exit;
+        end;
+
+        if(elemSig = 'IMGS') then begin
+            processImgs(e);
+            exit;
+        end;
+
+        if(elemSig = 'SPGD') then begin
+            processSpgd(e);
+            exit;
+        end;
+
         if(elemSig = 'CELL') then begin
             processPrecombines(e);
             exit;
@@ -2203,10 +2274,8 @@ unit CollectAssets;
                 // ignore . and ..
                 if(searchResult.Name <> '.') and (searchResult.Name <> '..') then begin
                     curFile := path+'\'+searchResult.Name;
-                    //AddMessage('what '+curFile);
 
                     if((searchResult.attr and faDirectory) = faDirectory) then begin
-                      //  AddMessage('Is Dir? yes');
                         addDirectoryToList(frm, curFile);
                     end else begin
                         // file

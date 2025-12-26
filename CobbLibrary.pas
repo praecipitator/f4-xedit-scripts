@@ -545,7 +545,7 @@ unit CobbLibrary;
         These are the positions and rotations of the child object relative to the world.
         In other words, this function exists as an alternative to MoveObjectRelativeToObject, allowing you to move objects however you wish.
 
-        Position code was inspired by GetPosXYZRotateAroundRef, a function authored by Chesko that can be found on the Creation Kit wiki.
+        Position code was inspired by GetPosXYZRotateAroundRef, a function authored by Chesko that could be found on the Creation Kit wiki a long time ago.
     }
     function GetCoordinatesRelativeToBase(afParentPosition, afParentRotation, afOffsetPosition, afOffsetRotation: TJsonObject): TJsonObject;
     var

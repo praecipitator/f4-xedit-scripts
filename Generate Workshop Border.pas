@@ -1200,7 +1200,7 @@ unit WorkshopBorder;
        baseZa, bottomZa, topZa: float;
        baseZb, bottomZb, topZb: float;
     begin
-        // 2 tris, 4 vertices
+        // 4 tris, 6 vertices
         // let's draw like this:
         {
             3---4 <- Top
