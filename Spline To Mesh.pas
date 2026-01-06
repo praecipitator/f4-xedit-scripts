@@ -1165,6 +1165,32 @@ unit SplineToMesh;
             Result := Add(f, s, True);
     end;
 
+    function stripPrefix(prefix, base: string): string;
+    var
+        prefixLength, strLength: integer;
+        compare: string;
+    begin
+        Result := base;
+        if(prefix = '') then begin
+            exit;
+        end;
+
+        //AddMessage('Stripping '+prefix+' from '+base);
+
+        prefixLength := length(prefix);
+        strLength := length(base);
+        Result := base;
+        if(prefixLength > strLength) then begin
+            exit;
+        end;
+
+        compare := copy(base, 1, prefixLength);
+
+        if(LowerCase(compare) = LowerCase(prefix)) then begin
+            Result := copy(base, prefixLength+1, strLength);
+        end;
+    end;
+
     function createStatic(inFile: IInterface; nameBase, nifPath: string; bounds: TJsonObject): IInterface;
     var
         statGroup: IInterface;
@@ -1183,10 +1209,12 @@ unit SplineToMesh;
         end;
 
         EnsurePath(Result, 'Model\MODL');
+
+        // nifPath must be WITHOUT meshes\
+        nifPath := stripPrefix('meshes\', nifPath);
         SetElementEditValues(Result, 'Model\MODL', nifPath);
 
         // do I need to add the "directional material"?
-
 
         // update the OBND
         setElementEditValues(Result, 'OBND\X1', IntToStr(bounds.I['minX']));
