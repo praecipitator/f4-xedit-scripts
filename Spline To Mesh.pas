@@ -32,6 +32,9 @@
         The default texture isn't perfect, if you have something better, you can put it in here.
         Default: Shared\FlatWhite01_d.dds
 
+    - "Create plugs at the end of the splines"
+        If enabled, additional faces will be created at the ends of each spline, closing it up.
+
     - "Create statics and references using the meshes":
         If enabled, the script will create new static forms and new references as a replacement for the original splines.
         These references will be placed at the same locations as the original splines.
@@ -75,7 +78,7 @@ unit SplineToMesh;
         CONFIG_FILE_NAME = ScriptsPath + 'Spline To Mesh.cfg';
 
         DEFAULT_WINDOW_WIDTH = 450;
-        DEFAULT_WINDOW_HEIGHT = 430;
+        DEFAULT_WINDOW_HEIGHT = 460;
 
     var
         currentRopeDistance: float;
@@ -89,6 +92,7 @@ unit SplineToMesh;
         cfgOriginZ: float;
 
         cfgCreateNewRefs: boolean;
+        cfgCreatePlugs: boolean;
         cfgNewRefsLayerName: string;
         cfgSplineLayer: string;
         cfgDefaultShaderTexture: string;
@@ -119,6 +123,7 @@ unit SplineToMesh;
         cfgOriginY := 0;
         cfgOriginZ := 0;
         cfgCreateNewRefs := true;
+        cfgCreatePlugs := true;
         cfgNewRefsLayerName := '';
         cfgSplineLayer := '';
         cfgDefaultShaderTexture := 'Shared\FlatWhite01_d.dds';
@@ -166,6 +171,8 @@ unit SplineToMesh;
                     cfgOriginZ := StrToFloat(curVal);
                 end else if(curKey = 'cfgCreateNewRefs') then begin
                     cfgCreateNewRefs := StrToBool(curVal);
+                end else if(curKey = 'cfgCreatePlugs') then begin
+                    cfgCreatePlugs := StrToBool(curVal);
                 end else if(curKey = 'cfgDefaultShaderTexture') then begin
                     cfgDefaultShaderTexture := curVal;
                 end else if(curKey = 'cfgMeshPrefixCombined') then begin
@@ -180,6 +187,15 @@ unit SplineToMesh;
                     cfgNewRefsLayerName := curVal;
                 end;
             end;
+        end;
+
+        if(cfgWindowWidth < DEFAULT_WINDOW_WIDTH) then begin
+            cfgWindowWidth := DEFAULT_WINDOW_WIDTH;
+        end;
+
+
+        if(cfgWindowHeight < DEFAULT_WINDOW_HEIGHT) then begin
+            cfgWindowHeight := DEFAULT_WINDOW_HEIGHT;
         end;
 
         lines.free();
@@ -215,6 +231,7 @@ unit SplineToMesh;
         lines.add('cfgWindowWidth='+FloatToStr(cfgWindowWidth));
         lines.add('cfgWindowHeight='+FloatToStr(cfgWindowHeight));
         lines.add('cfgCreateNewRefs='+BoolToStr(cfgCreateNewRefs));
+        lines.add('cfgCreatePlugs='+BoolToStr(cfgCreatePlugs));
         lines.add('cfgNewRefsLayerName='+cfgNewRefsLayerName);
         lines.add('cfgFormPrefix='+cfgFormPrefix);
         lines.add('cfgSplineLayer='+cfgSplineLayer);
@@ -293,6 +310,60 @@ unit SplineToMesh;
         Result := '#' + IntToHex(r, 2)+ IntToHex(g, 2)+ IntToHex(b, 2)+ IntToHex(a, 2);
     end;
 
+    function areFloatsCloseEnough(x, y: float): boolean;
+    var
+        signX, signY: boolean;
+        percent: float;
+    begin
+        if(x = y) then begin
+            Result := true;
+            exit;
+        end;
+
+        if(floatEquals(x, y)) then begin
+            Result := true;
+            exit;
+        end;
+
+        signX := (x > 0);
+        signY := (y > 0);
+
+        if(signX <> signY) then begin
+            Result := false;
+            exit;
+        end;
+
+        if(not signX) then begin
+            x := x * -1;
+            y := y * -1;
+        end;
+
+        if(x > y) then begin
+            percent := y/x;
+        end else begin
+            percent := x/y;
+        end;
+
+        // AddMessage('percent = '+FloatToStr(percent));
+
+        Result := (1 - percent) <= 0.1; // no clue what a good tolerance to check is
+    end;
+
+    procedure fixCoord(vertexData: TwbNifBlock; value: float; key: string);
+    var
+        temp: float;
+    begin
+        if(not areFloatsCloseEnough(vertexData.NativeValues[key], value)) then begin
+            temp := value;
+            // AddMessage('Coordinate anomaly in coord '+key);
+            while(not areFloatsCloseEnough(vertexData.NativeValues[key], temp)) do begin
+                temp := temp + 0.0001; // maybe this should be a percentual thing somehow
+
+                vertexData.NativeValues[key] := temp;
+            end;
+        end;
+    end;
+
     function writeVertex(x, y, z: float; vertData: TwbNifBlock; r, g, b: integer; u, v: float): TwbNifBlock;
     var
         newVertex: TwbNifBlock;
@@ -301,6 +372,11 @@ unit SplineToMesh;
         Result.Elements['Vertex'].NativeValues['X'] := x;
         Result.Elements['Vertex'].NativeValues['Y'] := y;
         Result.Elements['Vertex'].NativeValues['Z'] := z;
+
+        fixCoord(Result.Elements['Vertex'], x, 'X');
+        fixCoord(Result.Elements['Vertex'], y, 'Y');
+        fixCoord(Result.Elements['Vertex'], z, 'Z');
+
 
         Result.EditValues['Vertex Colors'] := createHexColor(r, g, b, 255);
 
@@ -499,6 +575,72 @@ unit SplineToMesh;
         end;
     end;
 
+    procedure writePlugs(pointChain: TJsonArray; vertData, triData: TwbNifBlock; colorR, colorG, colorB, numSides: integer);
+    var
+        curPoint: TJsonObject;
+        secondStartIndex, secondStartVertexIndex, newPoint1Index, newPoint2Index: integer;
+        uvData1, uvData2: TJsonObject;
+        i, curIndex, nextIndex: integer;
+    begin
+        {
+            - add one new point at the exact point
+            - then, add tris containing the new point, and two of the others
+            - first circle is 0 to numSides
+            - second circle is from lastIndex-numSides to lastIndex
+            - V keeps increasing from start to finish from 0 to 1, so can be 0,5 here
+            - U should be the same for the whole ring, so just take it from the first vertex
+
+           6 0-1
+          /     \
+         5   x   2
+          \     /
+           4---3
+        }
+        secondStartIndex := pointChain.count-1;
+        secondStartVertexIndex := vertData.count-1-numSides;
+        curPoint := pointChain.O[0];
+
+
+        uvData1 := parseNifUVs(vertData[0].EditValues['UV']);
+        uvData2 := parseNifUVs(vertData[secondStartVertexIndex].EditValues['UV']);
+
+        // write first plug
+
+        newPoint1Index := vertData.count;
+        newPoint2Index := newPoint1Index + 1;
+
+        writeVertex(curPoint.F['x'], curPoint.F['y'], curPoint.F['z'], vertData, colorR, colorG, colorB, uvData1.F['U'], 0.5);
+        curPoint := pointChain.O[secondStartIndex];
+        writeVertex(curPoint.F['x'], curPoint.F['y'], curPoint.F['z'], vertData, colorR, colorG, colorB, uvData2.F['U'], 0.5);
+
+        // newPoint1Index, newPoint2Index
+        uvData1.free();
+        uvData2.free();
+        // AddMessage('what '+vertData[0].NativeValues['U']);
+
+
+        for i:=0 to numSides-1 do begin
+            curIndex := i;
+            nextIndex := i+1;
+
+            // write tri
+            //writeTriangle(newPoint1Index, curIndex, nextIndex, triData);
+            writeTriangle(newPoint1Index, nextIndex, curIndex, triData);
+        end;
+
+        // last plug
+        for i:=0 to numSides-1 do begin
+            curIndex := i;
+            nextIndex := i+1;
+
+            // write tri
+            writeTriangle(newPoint2Index, secondStartVertexIndex+curIndex, secondStartVertexIndex+nextIndex, triData);
+            // writeTriangle(newPoint1Index, nextIndex, curIndex, triData);
+        end;
+
+
+    end;
+
     procedure ClearTriangleData(Triangles: TwbNifBlock);
     var
         entry: TwbNifBlock;
@@ -529,16 +671,65 @@ unit SplineToMesh;
         Result.EditValues['Name'] := materialName;
     end;
 
-    procedure setShaderTextures(nifTextureSet: TwbNifBlock; textureSet: IInterface);
+    function normalizeSlashes(name: string): string;
+    begin
+        Result := StringReplace(name, '/', '\', [rfReplaceAll]);
+    end;
+
+    function normalizeResource(path: string; akResourceType: TGameResourceType): string;
+    begin
+        Result := wbNormalizeResourceName(normalizeSlashes(path), akResourceType);
+    end;
+
+    procedure setShaderTextures(nifTextureSet: TwbNifBlock; textureSet: IInterface; materialName: string);
     var
+        matFile: TdfStruct;
         texturesBlock, texturesRoot: IInterface;
         texturesSubEntry: TwbNifBlock;
         i: integer;
+        matExtension: string;
+        el: TdfElement;
     begin
         texturesSubEntry := nifTextureSet.Elements['Textures'];
-        for i:=0 to 7 do begin
+        for i:=0 to 8 do begin
             texturesSubEntry.Add();
         end;
+
+        if(materialName <> '') then begin
+            materialName := normalizeResource(materialName, resMaterial);
+            matExtension := LowerCase(ExtractFileExt(materialName));
+
+            if(matExtension = '.bgsm') then begin
+                matFile := TwbBGSMFile.Create;
+            end else if(matExtension = '.bgem') then begin
+                matFile := TwbBGEMFile.Create;
+            end;
+
+            matFile.LoadFromResource(materialName);
+            el := matFile.Elements['Textures'];
+            if Assigned(el) then begin
+                for i := 0 to Pred(el.Count) do begin
+                    AddMessage('#'+IntToStr(i)+': '+el[i].EditValue);
+                    texturesSubEntry[i].EditValue := el[i].EditValue;
+                end;
+                {
+                #0: Interiors/Vault/Vault111/V111Ducts01_d.dds
+                #1: Interiors/Vault/Vault111/V111Ducts01_n.dds
+                #2: Interiors/Vault/Vault111/V111Ducts01_s.dds
+                #3:
+                #4: Shared/Cubemaps/MetalChrome01Cube_e.dds
+                #5:
+                #6:
+                #7:
+                #8:
+                is this the same for BGEM?
+                }
+            end;
+            matFile.Free;
+            exit;
+        end;
+
+
 
 
 
@@ -647,6 +838,7 @@ unit SplineToMesh;
             colorB := '255';
         end;
 
+        // so apparently, the CK works on an either/or system: if you put in a material, it will clear out the textures...
         shaderBlock := createBSLightingShaderProperty(nif, materialName);
 
         triShapeBlock.Elements['Shader Property'].NativeValue := shaderBlock.Index;
@@ -656,7 +848,7 @@ unit SplineToMesh;
         // texture set
         nifTextureSet := nif.InsertBlock(1, 'BSShaderTextureSet');
         shaderBlock.Elements['Texture Set'].NativeValue := nifTextureSet.Index;
-        setShaderTextures(nifTextureSet, textureSet);
+        setShaderTextures(nifTextureSet, textureSet, materialName);
 
 
         // direct nif object code
@@ -671,6 +863,13 @@ unit SplineToMesh;
         for j:=0 to pointChain.count-1 do begin
             writePointToNif(j, pointChain, vertexData, Triangles, thickness, colorR, colorG, colorB, numSides, numTiles, relativeToLength, splineLength);
         end;
+
+
+        // procedure writePlugs(pointChain: TJsonArray; vertData, triData: TwbNifBlock; colorR, colorG, colorB, numSides: integer);
+        if(cfgCreatePlugs) then begin
+            writePlugs(pointChain, vertexData, Triangles, colorR, colorG, colorB, numSides);
+        end;
+
 
         triShapeBlock.EditValues['Num Triangles'] := Triangles.count;
         triShapeBlock.EditValues['Num Vertices'] := vertexData.count;
@@ -697,9 +896,6 @@ unit SplineToMesh;
         nif.SpellUpdateTangents();
 
         nifDir := DataPath + cfgMeshBasePath;
-
-        Result.O['fuu'].F['ass'] := 23;
-
 
         // let's calc it here, then return some sort of object for output
         //asshole := calcMeshBounds(nif);
@@ -733,6 +929,23 @@ unit SplineToMesh;
                 exit;
             end;
         end;
+    end;
+
+    function parseNifUVs(vectorStr: string): TJsonObject;
+    var
+        helper: TStringList;
+    begin
+        helper := TStringList.create;
+
+        helper.Delimiter := ' ';
+        helper.StrictDelimiter := true;
+        helper.DelimitedText := vectorStr;
+
+        Result := TJsonObject.create;
+        Result.F['U'] := StrToFloat(helper[0]);
+        Result.F['V'] := StrToFloat(helper[1]);
+
+        helper.free();
     end;
 
     function parseNifRotationVector(vectorStr: string): TJsonObject;
@@ -1103,12 +1316,12 @@ unit SplineToMesh;
         splineLayerInput: TLabeledEdit;
         btnOk, btnCancel: TButton;
         yTop, yTopBase, defaultHeight: integer;
-        cbCombineMesh, createNewRefs: TCheckBox;
+        cbCombineMesh, createNewRefs, createPlugs: TCheckBox;
         vectorGroup : TGroupBox;
         inputX, inputY, inputZ: TLabeledEdit;
         yScaleFactor: float;
     begin
-        defaultHeight := 430;
+        defaultHeight := DEFAULT_WINDOW_HEIGHT;
         yScaleFactor := frm.Height / defaultHeight;
 
         vectorGroup := frm.FindComponent('vectorGroup');
@@ -1122,6 +1335,7 @@ unit SplineToMesh;
 
         cbCombineMesh := frm.FindComponent('cbCombineMesh');
         createNewRefs := frm.FindComponent('createNewRefs');
+        createPlugs := frm.FindComponent('createPlugs');
         inputX := vectorGroup.FindComponent('inputX');
         inputY := vectorGroup.FindComponent('inputY');
         inputZ := vectorGroup.FindComponent('inputZ');
@@ -1163,6 +1377,13 @@ unit SplineToMesh;
         defaultTextureInput.Width := frm.Width - 40;
 
         yTopBase := yTopBase + 30; // 130
+        yTop := yTopBase * yScaleFactor;
+
+
+        createPlugs.Top := yTop;
+        createPlugs.Left := 10;
+
+        yTopBase := yTopBase + 30;
         yTop := yTopBase * yScaleFactor;
 
 
@@ -1221,7 +1442,7 @@ unit SplineToMesh;
 
         meshCombinedPrefixInput.Enabled := cbCombineMesh.checked;
         meshPrefixInput.Enabled := not cbCombineMesh.checked;
-        
+
         // block the OK button if too many fields are empty
         btnOk.Enabled := (trim(pathInput.Text) <> '') and (trim(defaultTextureInput.Text) <> '');
 
@@ -1247,7 +1468,7 @@ unit SplineToMesh;
         resultCode: cardinal;
         pathInput, refLayerNameInput, formPrefixInput, meshPrefixInput, meshCombinedPrefixInput, defaultTextureInput: TLabeledEdit;
         splineLayerInput: TLabeledEdit;
-        cbCombineMesh, createNewRefs: TCheckBox;
+        cbCombineMesh, createNewRefs, createPlugs: TCheckBox;
         yTop: integer;
         vectorGroup : TGroupBox;
         inputX, inputY, inputZ: TLabeledEdit;
@@ -1269,6 +1490,11 @@ unit SplineToMesh;
 
 
         yTop := yTop + 30;
+        createPlugs := CreateCheckbox(frm, 10, yTop, 'Create plugs at the ends of the splines');
+        createPlugs.Name := 'createPlugs';
+        createPlugs.Checked := cfgCreatePlugs;
+
+
         createNewRefs := CreateCheckbox(frm, 10, yTop, 'Create statics and references using the meshes');
         createNewRefs.Name := 'createNewRefs';
         createNewRefs.Checked := cfgCreateNewRefs;
@@ -1357,6 +1583,8 @@ unit SplineToMesh;
             cfgDefaultShaderTexture := trim(defaultTextureInput.Text);
             cfgMeshPrefix := trim(meshPrefixInput.Text);
             cfgFormPrefix := trim(formPrefixInput.Text);
+
+            cfgCreatePlugs := createPlugs.Checked;
 
             cfgSplineLayer := trim(splineLayerInput.Text);
             Result := true;
