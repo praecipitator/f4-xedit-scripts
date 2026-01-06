@@ -405,14 +405,42 @@ unit SplineToMesh;
 
     end;
 
+    function isVectorNull(vec: TJsonObject): boolean;
+    begin
+        Result := (vec.F['x'] = 0) and (vec.F['y'] = 0) and (vec.F['z'] = 0);
+    end;
+
     function getRotationFromDeltaVector(deltaVector: TJsonObject): TJsonObject;
     var
         baseVector, crossProd: TJsonObject;
         quaternion: TJsonObject;
+        dotProd: float;
     begin
+        if (isVectorNull(deltaVector)) then begin
+            Result := NewVector(0,0,0);
+            exit;
+        end;
         baseVector := newVector(0,0,-1);
         // https://stackoverflow.com/questions/1171849/finding-quaternion-representing-the-rotation-from-one-vector-to-another
         crossProd := VectorCrossProduct(baseVector, deltaVector);
+        if (isVectorNull(crossProd)) then begin
+            // do we both point in the same direction, or in the opposite?
+            {
+            dotProduct = cos phi
+            gleiche richtung: phi = 0 -> cos phi = 1
+            verschiedene richtung: phi = 180 -> cos phi = -1
+            }
+            dotProd := VectorDotProduct(baseVector, deltaVector);
+            if(dotProd < 0) then begin
+                Result := NewVector(180,0,0);
+            end else begin;
+                Result := NewVector(0,0,0);
+            end;
+            crossProd.free();
+            baseVector.free();
+            exit;
+        end;
+
         quaternion := newQuaternion(
             VectorDotProduct(baseVector, deltaVector) + sqrt(sqr(VectorLength(baseVector)) * sqr(VectorLength(deltaVector))),
             crossProd.F['x'],
@@ -709,7 +737,7 @@ unit SplineToMesh;
             el := matFile.Elements['Textures'];
             if Assigned(el) then begin
                 for i := 0 to Pred(el.Count) do begin
-                    AddMessage('#'+IntToStr(i)+': '+el[i].EditValue);
+                    // AddMessage('#'+IntToStr(i)+': '+el[i].EditValue);
                     texturesSubEntry[i].EditValue := el[i].EditValue;
                 end;
                 {
