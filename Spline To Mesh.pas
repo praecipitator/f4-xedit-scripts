@@ -407,7 +407,7 @@ unit SplineToMesh;
 
     function isVectorNull(vec: TJsonObject): boolean;
     begin
-        Result := (vec.F['x'] = 0) and (vec.F['y'] = 0) and (vec.F['z'] = 0);
+        Result := ((vec.F['x'] = 0) and (vec.F['y'] = 0) and (vec.F['z'] = 0));
     end;
 
     function getRotationFromDeltaVector(deltaVector: TJsonObject): TJsonObject;
@@ -911,7 +911,7 @@ unit SplineToMesh;
 
     end;
 
-    function finalizeNif(nif: TwbNifFile; nameBase: string): TJsonObject;
+    function finalizeNif(nif: TwbNifFile; meshPrefix, nameBase: string): TJsonObject;
     var
         nifDir, finalPath, relativePath: string;
         notResult, asshole: TJsonObject;
@@ -937,9 +937,9 @@ unit SplineToMesh;
             exit;
         end;
 
-        relativePath := cfgMeshBasePath + cfgMeshPrefix + nameBase+'.nif';
+        relativePath := cfgMeshBasePath + meshPrefix + nameBase+'.nif';
 
-        finalPath := nifDir + cfgMeshPrefix + nameBase+'.nif';
+        finalPath := nifDir + meshPrefix + nameBase+'.nif';
         AddMessage('Writing file '+finalPath);
         nif.SaveToFile(finalPath);
 
@@ -1659,7 +1659,7 @@ unit SplineToMesh;
         nameBase := IntToHex(FormID(e), 8);
 
 
-        nifData := finalizeNif(nif, nameBase);
+        nifData := finalizeNif(nif,cfgMeshPrefix, nameBase);
 
         outputFilename := nifData.S['relativePath'];
         nifBounds := nifData.O['bounds'];
@@ -1749,6 +1749,11 @@ unit SplineToMesh;
     var
         cfgResult : boolean;
     begin
+        if(wbVersionNumber <= xEditVersionToCardinal(4, 0, 4, '')) then begin
+            AddMessage('This script doesn''t work with xEdit 4.0.4 for some reason');
+            Resul := 1;
+            exit;
+        end;
         currentNif := nil;
 
         loadConfig();
@@ -1808,7 +1813,7 @@ unit SplineToMesh;
         if(cfgCombineMesh) and (currentNif <> nil) then begin
             nameBase := StringCRC32(currentNameComponents.DelimitedText);
 
-            nifData := finalizeNif(currentNif, nameBase);
+            nifData := finalizeNif(currentNif, cfgMeshPrefixCombined, nameBase);
 
             if (cfgCreateNewRefs) then begin
                 outputFilename := nifData.S['relativePath'];
